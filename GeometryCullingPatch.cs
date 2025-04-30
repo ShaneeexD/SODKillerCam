@@ -428,12 +428,24 @@ namespace KillerCam
                 controller.currentRoomsCullingTree.Add(MurdererRoom);
                 controller.currentRoomsCullingWithImmediateStuffLoad.Add(MurdererRoom);
                 
+                // Force load all objects in the murderer's room
+                if (ObjectPoolingController.Instance != null)
+                {
+                    ObjectPoolingController.Instance.MarkRoomStuffToLoad(MurdererRoom);
+                }
+                
                 foreach (var adjacentRoom in AdjacentRooms)
                 {
                     if (adjacentRoom != null)
                     {
                         controller.currentRoomsCullingTree.Add(adjacentRoom);
                         controller.currentRoomsCullingWithImmediateStuffLoad.Add(adjacentRoom);
+                        
+                        // Force load objects in adjacent rooms
+                        if (ObjectPoolingController.Instance != null)
+                        {
+                            ObjectPoolingController.Instance.MarkRoomStuffToLoad(adjacentRoom);
+                        }
                     }
                 }
                 
@@ -443,6 +455,12 @@ namespace KillerCam
                     {
                         controller.currentRoomsCullingTree.Add(extendedRoom);
                         controller.currentRoomsCullingWithImmediateStuffLoad.Add(extendedRoom);
+                        
+                        // Force load objects in extended rooms
+                        if (ObjectPoolingController.Instance != null)
+                        {
+                            ObjectPoolingController.Instance.MarkRoomStuffToLoad(extendedRoom);
+                        }
                     }
                 }
                 
@@ -460,6 +478,12 @@ namespace KillerCam
                                 {
                                     controller.currentRoomsCullingTree.Add(room);
                                     controller.currentRoomsCullingWithImmediateStuffLoad.Add(room);
+                                    
+                                    // Force load objects in murder rooms
+                                    if (ObjectPoolingController.Instance != null)
+                                    {
+                                        ObjectPoolingController.Instance.MarkRoomStuffToLoad(room);
+                                    }
                                 }
                             }
                         }
@@ -477,6 +501,12 @@ namespace KillerCam
                             {
                                 controller.currentRoomsCullingTree.Add(human.currentRoom);
                                 controller.currentRoomsCullingWithImmediateStuffLoad.Add(human.currentRoom);
+                                
+                                // Force load objects in ragdoll rooms
+                                if (ObjectPoolingController.Instance != null)
+                                {
+                                    ObjectPoolingController.Instance.MarkRoomStuffToLoad(human.currentRoom);
+                                }
                             }
                             
                             // Also add adjacent rooms
@@ -488,6 +518,12 @@ namespace KillerCam
                                     {
                                         controller.currentRoomsCullingTree.Add(room);
                                         controller.currentRoomsCullingWithImmediateStuffLoad.Add(room);
+                                        
+                                        // Force load objects in adjacent rooms
+                                        if (ObjectPoolingController.Instance != null)
+                                        {
+                                            ObjectPoolingController.Instance.MarkRoomStuffToLoad(room);
+                                        }
                                     }
                                 }
                             }
@@ -514,6 +550,14 @@ namespace KillerCam
                                 {
                                     controller.currentRoomsCullingTree.Add(interactable.node.room);
                                     controller.currentRoomsCullingWithImmediateStuffLoad.Add(interactable.node.room);
+                                    
+                                    // Force load objects in interactable rooms
+                                    if (ObjectPoolingController.Instance != null)
+                                    {
+                                        ObjectPoolingController.Instance.MarkRoomStuffToLoad(interactable.node.room);
+                                        // Use the correct overload for Interactable objects
+                                        ObjectPoolingController.Instance.MarkAsToLoad(interactable);
+                                    }
                                 }
                                 
                                 // Also add adjacent rooms
@@ -525,6 +569,12 @@ namespace KillerCam
                                         {
                                             controller.currentRoomsCullingTree.Add(room);
                                             controller.currentRoomsCullingWithImmediateStuffLoad.Add(room);
+                                            
+                                            // Force load objects in adjacent rooms
+                                            if (ObjectPoolingController.Instance != null)
+                                            {
+                                                ObjectPoolingController.Instance.MarkRoomStuffToLoad(room);
+                                            }
                                         }
                                     }
                                 }
@@ -546,6 +596,12 @@ namespace KillerCam
                                 {
                                     controller.currentRoomsCullingTree.Add(pair.Key);
                                     controller.currentRoomsCullingWithImmediateStuffLoad.Add(pair.Key);
+                                    
+                                    // Force load objects in culling tree rooms
+                                    if (ObjectPoolingController.Instance != null)
+                                    {
+                                        ObjectPoolingController.Instance.MarkRoomStuffToLoad(pair.Key);
+                                    }
                                     break;
                                 }
                                 else
@@ -568,6 +624,12 @@ namespace KillerCam
                                     {
                                         controller.currentRoomsCullingTree.Add(pair.Key);
                                         controller.currentRoomsCullingWithImmediateStuffLoad.Add(pair.Key);
+                                        
+                                        // Force load objects in culling tree rooms
+                                        if (ObjectPoolingController.Instance != null)
+                                        {
+                                            ObjectPoolingController.Instance.MarkRoomStuffToLoad(pair.Key);
+                                        }
                                         break;
                                     }
                                 }
