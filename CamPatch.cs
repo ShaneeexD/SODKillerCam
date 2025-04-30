@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -218,6 +218,10 @@ namespace KillerCam
                         
                         if (murdererRoom != null)
                         {
+                            // First save and clear player rooms for optimization
+                            MurdererRoomTracker.SaveAndClearPlayerRooms();
+                            
+                            // Then set up murderer room tracking
                             MurdererRoomTracker.UpdateMurdererRoom(murdererRoom);
                             MurdererRoomTracker.IsActive = true;
                             KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + murdererRoom.name);
@@ -255,7 +259,11 @@ namespace KillerCam
             {
                 // Disable the MurdererRoomTracker first to stop culling management
                 MurdererRoomTracker.IsActive = false;
-                KillerCam.Logger.LogInfo("Deactivated MurdererRoomTracker");
+                
+                // Restore player rooms that were hidden for optimization
+                MurdererRoomTracker.RestorePlayerRooms();
+                
+                KillerCam.Logger.LogInfo("Deactivated MurdererRoomTracker and restored player rooms");
                 
                 // Disable murderer camera and enable original camera
                 if (murdererCamera != null)
