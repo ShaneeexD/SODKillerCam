@@ -103,20 +103,20 @@ namespace KillerCam
                 }
                 if (leftPressed)
                 {
-                    // Look left (decrease Y rotation)
-                    cameraRotationY -= cameraRotationSpeed;
+                    // Look left (decrease Y rotation offset)
+                    cameraYOffset -= cameraRotationSpeed;
                 }
                 if (rightPressed)
                 {
-                    // Look right (increase Y rotation)
-                    cameraRotationY += cameraRotationSpeed;
+                    // Look right (increase Y rotation offset)
+                    cameraYOffset += cameraRotationSpeed;
                 }
                 
                 // Clamp vertical rotation to prevent camera flipping
                 cameraRotationX = Mathf.Clamp(cameraRotationX, -80f, 80f);
                 
-                // Apply the updated rotation
-                murdererCamera.transform.rotation = Quaternion.Euler(cameraRotationX, cameraRotationY, 0);
+                // The rotation is now applied in UpdateMurdererCamera
+                // This combines the murderer's base rotation with our manual offset
             }
             
             // If we're spectating the murderer, update the camera position and handle culling
@@ -617,6 +617,7 @@ namespace KillerCam
         // Variables for camera rotation control
         private static float cameraRotationX = 0f;
         private static float cameraRotationY = 0f;
+        private static float cameraYOffset = 0f; // Manual offset for left/right rotation
         private static float cameraRotationSpeed = 3.5f;
         
         private static void UpdateMurdererCamera()
@@ -633,11 +634,19 @@ namespace KillerCam
                 murderController = MurderController.Instance;
                 
                 Vector3 murdererPos;
+                Quaternion murdererRot = Quaternion.identity;
                 
                 if (murderController != null && murderController.currentMurderer != null)
                 {
                     murdererPos = murderController.currentMurderer.transform.position;
-                    KillerCam.Logger.LogInfo("UpdateMurdererCamera - Got position: " + murdererPos.ToString());
+                    murdererRot = murderController.currentMurderer.transform.rotation;
+                    
+                    // Update the camera's Y rotation to match the murderer's rotation
+                    // This makes the camera rotate with the murderer when they turn
+                    Vector3 murdererEuler = murdererRot.eulerAngles;
+                    cameraRotationY = murdererEuler.y;
+                    
+                    KillerCam.Logger.LogInfo("UpdateMurdererCamera - Got position: " + murdererPos.ToString() + ", rotation: " + murdererEuler.y);
                 }
                 else
                 {
@@ -667,8 +676,8 @@ namespace KillerCam
                         murdererPos.z + behindOffset.z
                     );
                     
-                    // Camera rotation is handled by arrow keys in the Prefix method
-                    // We only update the position here, not the rotation
+                    // Apply the updated rotation (combining murderer's Y rotation with manual X rotation and Y offset)
+                    murdererCamera.transform.rotation = Quaternion.Euler(cameraRotationX, cameraRotationY + cameraYOffset, 0);
                 }
             }
             catch (Exception ex)
