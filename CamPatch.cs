@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,6 +14,7 @@ namespace KillerCam
     {
         // Static variables to maintain state
         private static bool isSpectatingMurderer = false;
+        private static GameObject murdererCameraObject = null;
         private static Camera murdererCamera = null;
         private static Camera originalCamera = null;
         public static MurdererInfoProvider murdererInfoProvider;
@@ -21,12 +22,15 @@ namespace KillerCam
         private static UnityEngine.KeyCode toggleKey = UnityEngine.KeyCode.F8; // You can change this to any key you prefer
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F8; // IL2CPP equivalent
         
+        // Track the murderer's last room to avoid unnecessary culling updates
+        private static NewRoom lastMurdererRoom = null;
+        private static float cullingUpdateCooldown = 0f;
+
         // IL2CPP key codes for arrow keys
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppUpKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.UpArrow;
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppDownKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.DownArrow;
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppLeftKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.LeftArrow;
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppRightKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.RightArrow;
-        private static GameObject murdererCameraObject = null;
         
         // Track key state to implement our own key press detection
         private static bool wasKeyPressed = false;
@@ -127,21 +131,25 @@ namespace KillerCam
                     {
                         // Find the room the murderer is in
                         Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
-                        NewNode murdererNode = murdererHuman?.currentNode;
                         NewRoom murdererRoom = murdererHuman?.currentRoom;
                         
+                        // Always ensure the murderer's room is visible
                         if (murdererRoom != null)
                         {
-                            // Update culling for the murderer's room
-                            if (GeometryCullingController.Instance != null)
+                            // Update the MurdererRoomTracker with current room information
+                            MurdererRoomTracker.UpdateMurdererRoom(murdererRoom);
+                            
+                            // Only do a full culling update when the room changes or on cooldown
+                            cullingUpdateCooldown -= Time.deltaTime;
+                            if (murdererRoom != lastMurdererRoom || cullingUpdateCooldown <= 0)
                             {
-                                // Force the murderer's room and surrounding rooms to be visible
+                                // Force a full culling update
                                 GeometryCullingController.Instance.UpdateCullingForRoom(murdererRoom, true, false, null, true);
-                                KillerCam.Logger.LogInfo("Updated culling for murderer's room: " + murdererRoom.name);
+                                KillerCam.Logger.LogInfo("Full culling update for murderer's room: " + murdererRoom.name);
                                 
-                                // Let the game's culling system handle it
-                                // The UpdateCullingForRoom method will add the room and its visible neighbors
-                                // to the culling tree and make them visible
+                                // Remember this room and reset cooldown
+                                lastMurdererRoom = murdererRoom;
+                                cullingUpdateCooldown = 3.0f; // Only update every 3 seconds at most
                             }
                         }
                     }
@@ -152,7 +160,6 @@ namespace KillerCam
                 }
             }
             
-            KillerCam.Logger.LogInfo("F8 Pressed");
         }
         
         private static void ToggleMurdererCamera()
@@ -202,6 +209,21 @@ namespace KillerCam
                 {
                     murdererCamera.enabled = true;
                     UpdateMurdererCamera(); // Initial position update
+                    
+                    // Enable the MurdererRoomTracker to handle culling
+                    if (murderController != null && murderController.currentMurderer != null)
+                    {
+                        Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
+                        NewRoom murdererRoom = murdererHuman?.currentRoom;
+                        
+                        if (murdererRoom != null)
+                        {
+                            MurdererRoomTracker.UpdateMurdererRoom(murdererRoom);
+                            MurdererRoomTracker.IsActive = true;
+                            KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + murdererRoom.name);
+                        }
+                    }
+                    
                     KillerCam.Logger.LogInfo("Switched to murderer camera. Press " + toggleKey.ToString() + " to switch back.");
                 }
             }
@@ -220,6 +242,9 @@ namespace KillerCam
                     murdererCamera.enabled = false;
                 }
                 
+                // Disable the MurdererRoomTracker
+                MurdererRoomTracker.IsActive = false;
+                
                 KillerCam.Logger.LogError("Error switching to murderer camera: " + ex.Message);
             }
         }
@@ -228,6 +253,10 @@ namespace KillerCam
         {
             try
             {
+                // Disable the MurdererRoomTracker first to stop culling management
+                MurdererRoomTracker.IsActive = false;
+                KillerCam.Logger.LogInfo("Deactivated MurdererRoomTracker");
+                
                 // Disable murderer camera and enable original camera
                 if (murdererCamera != null)
                 {
