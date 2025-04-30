@@ -115,12 +115,44 @@ namespace KillerCam
                 murdererCamera.transform.rotation = Quaternion.Euler(cameraRotationX, cameraRotationY, 0);
             }
             
-            // If we're spectating the murderer, update the camera position
-            if (isSpectatingMurderer && murdererCamera != null)
+            // If we're spectating the murderer, update the camera position and handle culling
+            if (isSpectatingMurderer)
             {
                 UpdateMurdererCamera();
-                KillerCam.Logger.LogInfo("F8 Pressed");
+                
+                // Handle culling for the murderer's location to ensure proper rendering
+                if (murderController != null && murderController.currentMurderer != null)
+                {
+                    try
+                    {
+                        // Find the room the murderer is in
+                        Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
+                        NewNode murdererNode = murdererHuman?.currentNode;
+                        NewRoom murdererRoom = murdererHuman?.currentRoom;
+                        
+                        if (murdererRoom != null)
+                        {
+                            // Update culling for the murderer's room
+                            if (GeometryCullingController.Instance != null)
+                            {
+                                // Force the murderer's room and surrounding rooms to be visible
+                                GeometryCullingController.Instance.UpdateCullingForRoom(murdererRoom, true, false, null, true);
+                                KillerCam.Logger.LogInfo("Updated culling for murderer's room: " + murdererRoom.name);
+                                
+                                // Let the game's culling system handle it
+                                // The UpdateCullingForRoom method will add the room and its visible neighbors
+                                // to the culling tree and make them visible
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        KillerCam.Logger.LogError("Error updating culling for murderer's room: " + ex.Message);
+                    }
+                }
             }
+            
+            KillerCam.Logger.LogInfo("F8 Pressed");
         }
         
         private static void ToggleMurdererCamera()
