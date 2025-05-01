@@ -122,9 +122,14 @@ namespace KillerCam
                 transitionTargetRotation = target.transform.rotation;
             }
             
-            // Enable both cameras during transition
-            source.enabled = true;
-            target.enabled = true;
+            // Make sure all cameras are properly set up before transition
+            // Disable all cameras except source initially
+            if (playerCamera != null) playerCamera.enabled = (playerCamera == source);
+            if (murdererCamera != null) murdererCamera.enabled = (murdererCamera == source);
+            if (victimCamera != null) victimCamera.enabled = (victimCamera == source);
+            
+            // Then enable the target camera
+            if (target != null) target.enabled = true;
             
             // Set active camera for the transition
             activeCamera = target;
@@ -136,7 +141,7 @@ namespace KillerCam
             isTransitioning = true;
             transitionTargetType = targetType;
             
-            KillerCam.Logger.LogInfo($"Started camera transition to {targetType}");
+            KillerCam.Logger.LogInfo($"Started camera transition to {targetType} from {(source == playerCamera ? "player" : (source == murdererCamera ? "murderer" : "victim"))}");
         }
         
         // Track key states for arrow keys
@@ -259,15 +264,29 @@ namespace KillerCam
                         // Update the appropriate camera based on transition target
                         if (transitionTargetType == SpectateTarget.Murderer)
                         {
+                            // Enable murderer camera, disable others
+                            if (murdererCamera != null) murdererCamera.enabled = true;
+                            if (victimCamera != null) victimCamera.enabled = false;
+                            if (playerCamera != null) playerCamera.enabled = false;
+                            
                             isSpectatingMurderer = true;
                             isSpectatingVictim = false;
                             currentSpectateTarget = SpectateTarget.Murderer;
+                            
+                            KillerCam.Logger.LogInfo("Completed transition to murderer camera");
                         }
                         else if (transitionTargetType == SpectateTarget.Victim)
                         {
+                            // Enable victim camera, disable others
+                            if (victimCamera != null) victimCamera.enabled = true;
+                            if (murdererCamera != null) murdererCamera.enabled = false;
+                            if (playerCamera != null) playerCamera.enabled = false;
+                            
                             isSpectatingVictim = true;
                             isSpectatingMurderer = false;
                             currentSpectateTarget = SpectateTarget.Victim;
+                            
+                            KillerCam.Logger.LogInfo("Completed transition to victim camera");
                         }
                         else
                         {
@@ -276,21 +295,10 @@ namespace KillerCam
                             isSpectatingVictim = false;
                             currentSpectateTarget = SpectateTarget.None;
                             
-                            // Enable player camera
-                            if (playerCamera != null)
-                            {
-                                playerCamera.enabled = true;
-                            }
-                            
-                            // Disable other cameras
-                            if (murdererCamera != null)
-                            {
-                                murdererCamera.enabled = false;
-                            }
-                            if (victimCamera != null)
-                            {
-                                victimCamera.enabled = false;
-                            }
+                            // Enable player camera, disable others
+                            if (playerCamera != null) playerCamera.enabled = true;
+                            if (murdererCamera != null) murdererCamera.enabled = false;
+                            if (victimCamera != null) victimCamera.enabled = false;
                             
                             // Restore HUD elements
                             RestoreHUDElements();
@@ -298,6 +306,8 @@ namespace KillerCam
                             // Deactivate room tracking
                             MurdererRoomTracker.IsActive = false;
                             MurdererRoomTracker.RestorePlayerRooms();
+                            
+                            KillerCam.Logger.LogInfo("Completed transition to player camera");
                         }
                     }
                 }
@@ -325,7 +335,7 @@ namespace KillerCam
             }
             
             // Track spectating state for the next frame
-            if (isSpectatingMurderer)
+            if (isSpectatingMurderer || isSpectatingVictim)
             {
                 wasSpectatingLastFrame = true;
             }
@@ -367,6 +377,46 @@ namespace KillerCam
                     catch (Exception ex)
                     {
                         KillerCam.Logger.LogError("Error updating culling for murderer's room: " + ex.Message);
+                    }
+                }
+            }
+            // If we're spectating the victim, update the camera position and handle culling
+            else if (isSpectatingVictim)
+            {
+                UpdateVictimCamera();
+                
+                // Handle culling for the victim's location to ensure proper rendering
+                if (murderController != null && murderController.currentVictim != null)
+                {
+                    try
+                    {
+                        // Find the room the victim is in
+                        Human victimHuman = murderController.currentVictim.GetComponent<Human>();
+                        NewRoom victimRoom = victimHuman?.currentRoom;
+                        
+                        // Always ensure the victim's room is visible
+                        if (victimRoom != null)
+                        {
+                            // Update the MurdererRoomTracker with current room information (it works for victim too)
+                            MurdererRoomTracker.UpdateMurdererRoom(victimRoom);
+                            
+                            // Only do a full culling update when the room changes or on cooldown
+                            cullingUpdateCooldown -= Time.deltaTime;
+                            if (victimRoom != lastMurdererRoom || cullingUpdateCooldown <= 0)
+                            {
+                                // Force a full culling update
+                                GeometryCullingController.Instance.UpdateCullingForRoom(victimRoom, true, false, null, true);
+                                KillerCam.Logger.LogInfo("Full culling update for victim's room: " + victimRoom.name);
+                                
+                                // Remember this room and reset cooldown
+                                lastMurdererRoom = victimRoom; // Reuse the same variable for tracking
+                                cullingUpdateCooldown = 3.0f; // Only update every 3 seconds at most
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        KillerCam.Logger.LogError("Error updating culling for victim's room: " + ex.Message);
                     }
                 }
             }
@@ -1244,12 +1294,12 @@ namespace KillerCam
                     Camera sourceCamera;
                     
                     // If we're already spectating, use the current active camera as the source
-                    if (isSpectatingMurderer && murdererCamera != null)
+                    if (isSpectatingMurderer && murdererCamera != null && murdererCamera.enabled)
                     {
                         sourceCamera = murdererCamera;
                         KillerCam.Logger.LogInfo("Using murderer camera as transition source");
                     }
-                    else if (isSpectatingVictim && victimCamera != null)
+                    else if (isSpectatingVictim && victimCamera != null && victimCamera.enabled)
                     {
                         sourceCamera = victimCamera;
                         KillerCam.Logger.LogInfo("Using victim camera as transition source");
@@ -1259,6 +1309,13 @@ namespace KillerCam
                         // Default to player camera if not currently spectating
                         sourceCamera = playerCamera;
                         KillerCam.Logger.LogInfo("Using player camera as transition source");
+                    }
+                    
+                    // Ensure source camera is not the same as target camera
+                    if (sourceCamera == targetCamera)
+                    {
+                        KillerCam.Logger.LogWarning("Source and target cameras are the same, no transition needed");
+                        return;
                     }
                     
                     // Start a smooth transition from the source camera to target camera
@@ -1276,7 +1333,20 @@ namespace KillerCam
                         // Then set up room tracking
                         MurdererRoomTracker.UpdateMurdererRoom(targetRoom);
                         MurdererRoomTracker.IsActive = true;
-                        KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + targetRoom.name);
+                        
+                        // Force an immediate culling update for the target room
+                        try {
+                            GeometryCullingController.Instance.UpdateCullingForRoom(targetRoom, true, false, null, true);
+                            
+                            // Update the lastMurdererRoom to avoid unnecessary updates
+                            lastMurdererRoom = targetRoom;
+                            cullingUpdateCooldown = 3.0f;
+                            
+                            KillerCam.Logger.LogInfo("Activated room tracking and forced culling update for room: " + targetRoom.name);
+                        }
+                        catch (Exception ex) {
+                            KillerCam.Logger.LogError("Error forcing culling update: " + ex.Message);
+                        }
                     }
                 }
             }
