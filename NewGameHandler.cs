@@ -1,8 +1,9 @@
-﻿using SOD.Common;
+using SOD.Common;
 using System;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityStandardAssets.Characters.FirstPerson;
+using HarmonyLib;
 
 namespace KillerCam
 {

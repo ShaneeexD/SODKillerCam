@@ -118,12 +118,12 @@ namespace KillerCam
             }
             
             // Make sure all cameras are properly set up before transition
-            // Disable all cameras except source initially
-            if (playerCamera != null) playerCamera.enabled = (playerCamera == source);
-            if (murdererCamera != null) murdererCamera.enabled = (murdererCamera == source);
-            if (victimCamera != null) victimCamera.enabled = (victimCamera == source);
-            
-            // Then enable the target camera
+            // Disable all cameras first
+            if (playerCamera != null) playerCamera.enabled = false;
+            if (murdererCamera != null) murdererCamera.enabled = false;
+            if (victimCamera != null) victimCamera.enabled = false;
+
+            // Then enable only the target camera (which will be the active one during transition)
             if (target != null) target.enabled = true;
             
             // Set active camera for the transition
