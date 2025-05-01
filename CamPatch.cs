@@ -20,8 +20,6 @@ namespace KillerCam
         private static Camera victimCamera = null;
         private static GameObject victimCameraObject = null;
         private static Camera playerCamera = null;
-        // Flag to indicate if we've already logged camera info
-        private static bool hasDumpedCameraInfo = false;
         
         // Track which camera we're currently using
         private static SpectateTarget currentSpectateTarget = SpectateTarget.None;
@@ -83,6 +81,9 @@ namespace KillerCam
                 KillerCam.Logger.LogError("Cannot transition with null cameras");
                 return;
             }
+            
+            // Disable collision detection during transitions
+            isTransitioning = true;
             
             // Set up transition parameters
             transitionStartPosition = source.transform.position;
@@ -147,12 +148,6 @@ namespace KillerCam
         [HarmonyPrefix]
         public static void Prefix(Player __instance)
         {
-            // Dump camera information once to help debug
-            if (!hasDumpedCameraInfo)
-            {
-                DumpCameraInfo();
-                hasDumpedCameraInfo = true;
-            }
             
             // Check for F8 key press
             bool isKeyDownMurderer = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyMurderer);
@@ -1006,92 +1001,6 @@ namespace KillerCam
             }
         }
         
-        // Method to dump information about available cameras
-        private static void DumpCameraInfo()
-        {
-            try
-            {
-                KillerCam.Logger.LogInfo("======= CAMERA INFORMATION DUMP =======");
-                
-                // Log Camera.main info
-                if (Camera.main != null)
-                {
-                    KillerCam.Logger.LogInfo("Camera.main: " + Camera.main.name + ", enabled: " + Camera.main.enabled);
-                }
-                else
-                {
-                    KillerCam.Logger.LogInfo("Camera.main is null");
-                }
-                
-                // Check for camera on Player
-                if (Player.Instance != null)
-                {
-                    Camera playerCam = Player.Instance.GetComponentInChildren<Camera>();
-                    if (playerCam != null)
-                    {
-                        KillerCam.Logger.LogInfo("Player camera: " + playerCam.name + ", enabled: " + playerCam.enabled);
-                    }
-                    else
-                    {
-                        KillerCam.Logger.LogInfo("No camera found on Player");
-                    }
-                }
-                
-                // Try to log CameraController info
-                if (CameraController.Instance != null)
-                {
-                    KillerCam.Logger.LogInfo("CameraController.Instance exists");
-                    
-                    // Try to get camera component
-                    Camera controllerCam = CameraController.Instance.GetComponent<Camera>();
-                    if (controllerCam != null)
-                    {
-                        KillerCam.Logger.LogInfo("CameraController camera: " + controllerCam.name + ", enabled: " + controllerCam.enabled);
-                    }
-                    else
-                    {
-                        KillerCam.Logger.LogInfo("No camera component on CameraController");
-                    }
-                    
-                    // Log all fields in CameraController
-                    var fields = typeof(CameraController).GetFields();
-                    KillerCam.Logger.LogInfo("CameraController fields: " + fields.Length);
-                    
-                    foreach (var field in fields)
-                    {
-                        KillerCam.Logger.LogInfo("Field: " + field.Name + ", Type: " + field.FieldType.Name);
-                    }
-                    
-                    // Try to log the cameraObj field if it exists
-                    var cameraObjField = typeof(CameraController).GetField("cameraObj");
-                    if (cameraObjField != null)
-                    {
-                        var cameraObj = cameraObjField.GetValue(CameraController.Instance) as GameObject;
-                        if (cameraObj != null)
-                        {
-                            KillerCam.Logger.LogInfo("CameraController.cameraObj: " + cameraObj.name);
-                            
-                            // Check if it has a camera component
-                            Camera camComponent = cameraObj.GetComponent<Camera>();
-                            if (camComponent != null)
-                            {
-                                KillerCam.Logger.LogInfo("Camera on cameraObj: " + camComponent.name + ", enabled: " + camComponent.enabled);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    KillerCam.Logger.LogInfo("CameraController.Instance is null");
-                }
-                
-                KillerCam.Logger.LogInfo("======= END CAMERA INFORMATION DUMP =======");
-            }
-            catch (Exception ex)
-            {
-                KillerCam.Logger.LogError("Error dumping camera info: " + ex.Message);
-            }
-        }
         
         // Variables for camera rotation control
         private static float cameraRotationX = 0f;
@@ -1123,59 +1032,34 @@ namespace KillerCam
                 // Get murderer location directly from MurderController.Instance
                 murderController = MurderController.Instance;
                 
-                Vector3 murdererPos;
-                Quaternion murdererRot = Quaternion.identity;
-                
-                if (murderController != null && murderController.currentMurderer != null)
+                if (murderController == null || murderController.currentMurderer == null)
                 {
-                    murdererPos = murderController.currentMurderer.transform.position;
-                    murdererRot = murderController.currentMurderer.transform.rotation;
-                    
-                    // Update the target Y rotation to match the murderer's rotation
-                    // We'll smoothly interpolate towards this target rotation
-                    Vector3 murdererEuler = murdererRot.eulerAngles;
-                    targetRotationY = murdererEuler.y;
-                    
-                    // Smoothly rotate the camera to follow the murderer's rotation
-                    // This prevents sudden jerky movements when the murderer turns quickly
-                    // Using Lerp for smooth rotation since SmoothDampAngle may not be available
-                    
-                    // Calculate the shortest angle between current and target rotation
-                    float angleDifference = Mathf.DeltaAngle(cameraRotationY, targetRotationY);
-                    
-                    // Apply smooth rotation based on time
-                    if (Mathf.Abs(angleDifference) > 0.01f) // Only rotate if there's a significant difference
-                    {
-                        // Smooth the rotation using lerp with deltaTime
-                        float step = (1.0f / rotationSmoothTime) * Time.deltaTime;
-                        cameraRotationY = Mathf.Lerp(cameraRotationY, cameraRotationY + angleDifference, step);
-                    }
-                }
-                else
-                {
-                    // Default position if we can't find the murderer
-                    murdererPos = new Vector3(0, 70, 0);
-                    KillerCam.Logger.LogInfo("UpdateMurdererCamera - Using default position: " + murdererPos.ToString());
+                    return;
                 }
                 
-                if (murdererPos != Vector3.zero)
+                // Get the murderer's position and rotation
+                Transform murdererTransform = murderController.currentMurderer.transform;
+                if (murdererTransform == null)
                 {
-                    // Position the camera behind and above the murderer (third-person style)
-                    float heightOffset = 2.5f;  // Higher up for better view
-                    
-                    // Apply the rotation first (combining murderer's Y rotation with manual X rotation and Y offset)
-                    Quaternion cameraRotation = Quaternion.Euler(cameraRotationX, cameraRotationY + cameraYOffset, 0);
-                    murdererCamera.transform.rotation = cameraRotation;
-                    
-                    // Calculate the desired camera position without collision
-                    Vector3 cameraDirection = -murdererCamera.transform.forward; // Direction from murderer to camera
-                    Vector3 targetPosition = murdererPos + new Vector3(0, heightOffset, 0); // Position above murderer
-                    Vector3 desiredPosition = targetPosition + (cameraDirection * defaultCameraDistance);
-                    
-                    // Perform collision detection using raycast
-                    float adjustedDistance = defaultCameraDistance;
-                    RaycastHit hit;
-                    
+                    return;
+                }
+                
+                // Calculate the desired position (behind and slightly above the murderer)
+                Vector3 targetPosition = murdererTransform.position + new Vector3(0, 1.7f, 0);
+                
+                // Apply rotation offset from arrow keys
+                Quaternion targetRotation = murdererTransform.rotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+                
+                // Get the direction the camera should be looking
+                Vector3 cameraDirection = targetRotation * Vector3.forward * -1f;
+                
+                // Default distance from the murderer
+                float adjustedDistance = defaultCameraDistance;
+                RaycastHit hit;
+                
+                // Only check for collisions if we're not transitioning
+                if (!isTransitioning)
+                {
                     // Check for collisions using a simple raycast instead of SphereCast (more compatible with IL2CPP)
                     // Cast multiple rays in slightly different directions to simulate a sphere
                     bool hitDetected = false;
@@ -1216,17 +1100,35 @@ namespace KillerCam
                     
                     // Smoothly adjust the current distance
                     currentDistance = Mathf.Lerp(currentDistance, adjustedDistance, Time.deltaTime * 5f);
-                    
-                    // Calculate the final camera position with collision avoidance
-                    Vector3 finalPosition = targetPosition + (cameraDirection * currentDistance);
-                    
-                    // Smoothly move the camera to the new position
-                    murdererCameraObject.transform.position = Vector3.SmoothDamp(
-                        murdererCameraObject.transform.position,
-                        finalPosition,
-                        ref currentCameraVelocity,
-                        smoothDampTime
-                    );
+                }
+                else
+                {
+                    // During transitions, use the default distance without collision checks
+                    currentDistance = defaultCameraDistance;
+                }
+                
+                // Calculate the final camera position with collision avoidance
+                Vector3 finalPosition = targetPosition + (cameraDirection * currentDistance);
+                
+                // Smoothly move the camera to the new position - use a new velocity vector like the victim camera
+                Vector3 currentVelocity = Vector3.zero;
+                float smoothTime = 0.1f; // Match the victim camera's smooth time
+                
+                murdererCameraObject.transform.position = Vector3.SmoothDamp(
+                    murdererCameraObject.transform.position,
+                    finalPosition,
+                    ref currentVelocity,
+                    smoothTime
+                );
+                
+                // Update the camera rotation to look at the murderer (plus our offset)
+                murdererCamera.transform.rotation = targetRotation;
+                
+                // Update culling for the murderer's room if needed
+                Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
+                if (murdererHuman != null && murdererHuman.currentRoom != null)
+                {
+                    MurdererRoomTracker.UpdateMurdererRoom(murdererHuman.currentRoom);
                 }
             }
             catch (Exception ex)
@@ -1266,37 +1168,46 @@ namespace KillerCam
                 float currentDistance = defaultCameraDistance;
                 float minCameraDistance = 0.5f;
                 
-                // Check for collisions to avoid clipping through walls
-                RaycastHit hit;
-                bool hitDetected = false;
-                float closestHitDistance = float.MaxValue;
-                
-                // Cast rays in multiple directions to avoid clipping through walls
-                Vector3[] offsets = new Vector3[5]
+                // Only check for collisions if we're not transitioning
+                if (!isTransitioning)
                 {
-                    Vector3.zero,
-                    new Vector3(0.2f, 0, 0),
-                    new Vector3(-0.2f, 0, 0),
-                    new Vector3(0, 0.2f, 0),
-                    new Vector3(0, -0.2f, 0)
-                };
-                
-                foreach (Vector3 offset in offsets)
-                {
-                    if (Physics.Raycast(targetPosition + offset, cameraDirection, out hit, defaultCameraDistance))
+                    // Check for collisions to avoid clipping through walls
+                    RaycastHit hit;
+                    bool hitDetected = false;
+                    float closestHitDistance = float.MaxValue;
+                    
+                    // Cast rays in multiple directions to avoid clipping through walls
+                    Vector3[] offsets = new Vector3[5]
                     {
-                        hitDetected = true;
-                        if (hit.distance < closestHitDistance)
+                        Vector3.zero,
+                        new Vector3(0.2f, 0, 0),
+                        new Vector3(-0.2f, 0, 0),
+                        new Vector3(0, 0.2f, 0),
+                        new Vector3(0, -0.2f, 0)
+                    };
+                    
+                    foreach (Vector3 offset in offsets)
+                    {
+                        if (Physics.Raycast(targetPosition + offset, cameraDirection, out hit, defaultCameraDistance))
                         {
-                            closestHitDistance = hit.distance;
+                            hitDetected = true;
+                            if (hit.distance < closestHitDistance)
+                            {
+                                closestHitDistance = hit.distance;
+                            }
                         }
                     }
+                    
+                    if (hitDetected)
+                    {
+                        // If we hit something, adjust the distance to be just before the hit point
+                        currentDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
+                    }
                 }
-                
-                if (hitDetected)
+                else
                 {
-                    // If we hit something, adjust the distance to be just before the hit point
-                    currentDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
+                    // During transitions, use the default distance without collision checks
+                    currentDistance = defaultCameraDistance;
                 }
                 
                 // Calculate the final camera position with collision avoidance
