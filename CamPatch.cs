@@ -617,8 +617,11 @@ namespace KillerCam
         // Variables for camera rotation control
         private static float cameraRotationX = 0f;
         private static float cameraRotationY = 0f;
+        private static float targetRotationY = 0f; // Target Y rotation to smoothly move towards
         private static float cameraYOffset = 0f; // Manual offset for left/right rotation
         private static float cameraRotationSpeed = 3.5f;
+        private static float rotationSmoothTime = 0.3f; // Time to smooth rotation (higher = smoother but slower)
+        private static float rotationVelocity = 0f; // Used by SmoothDampAngle
         
         // Camera collision variables
         private static float defaultCameraDistance = 1.5f;  // Default distance behind the murderer
@@ -649,10 +652,25 @@ namespace KillerCam
                     murdererPos = murderController.currentMurderer.transform.position;
                     murdererRot = murderController.currentMurderer.transform.rotation;
                     
-                    // Update the camera's Y rotation to match the murderer's rotation
-                    // This makes the camera rotate with the murderer when they turn
+                    // Update the target Y rotation to match the murderer's rotation
+                    // We'll smoothly interpolate towards this target rotation
                     Vector3 murdererEuler = murdererRot.eulerAngles;
-                    cameraRotationY = murdererEuler.y;
+                    targetRotationY = murdererEuler.y;
+                    
+                    // Smoothly rotate the camera to follow the murderer's rotation
+                    // This prevents sudden jerky movements when the murderer turns quickly
+                    // Using Lerp for smooth rotation since SmoothDampAngle may not be available
+                    
+                    // Calculate the shortest angle between current and target rotation
+                    float angleDifference = Mathf.DeltaAngle(cameraRotationY, targetRotationY);
+                    
+                    // Apply smooth rotation based on time
+                    if (Mathf.Abs(angleDifference) > 0.01f) // Only rotate if there's a significant difference
+                    {
+                        // Smooth the rotation using lerp with deltaTime
+                        float step = (1.0f / rotationSmoothTime) * Time.deltaTime;
+                        cameraRotationY = Mathf.Lerp(cameraRotationY, cameraRotationY + angleDifference, step);
+                    }
                 }
                 else
                 {
