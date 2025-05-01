@@ -72,6 +72,71 @@ namespace KillerCam
         private static float transitionDuration = 1.5f; // Seconds for a complete transition
         private static SpectateTarget transitionTargetType = SpectateTarget.None;
         private static Camera activeCamera = null; // The currently active camera during transitions
+        private static Camera sourceCamera = null; // The camera we're transitioning from
+        private static Camera targetCamera = null; // The camera we're transitioning to
+        
+        // Method to start a camera transition between two cameras
+        private static void TransitionCamera(Camera source, Camera target, SpectateTarget targetType)
+        {
+            if (source == null || target == null)
+            {
+                KillerCam.Logger.LogError("Cannot transition with null cameras");
+                return;
+            }
+            
+            // Set up transition parameters
+            transitionStartPosition = source.transform.position;
+            transitionStartRotation = source.transform.rotation;
+            
+            // If transitioning to a target camera (murderer or victim), calculate position behind them
+            if (targetType != SpectateTarget.None)
+            {
+                // Get the target human
+                Human targetHuman = null;
+                if (targetType == SpectateTarget.Murderer && murderController != null)
+                    targetHuman = murderController.currentMurderer?.GetComponent<Human>();
+                else if (targetType == SpectateTarget.Victim && murderController != null)
+                    targetHuman = murderController.currentVictim?.GetComponent<Human>();
+                
+                if (targetHuman != null)
+                {
+                    Vector3 targetPosition = targetHuman.transform.position;
+                    Quaternion targetRotation = targetHuman.transform.rotation;
+                    
+                    // Calculate position behind and above the target
+                    transitionTargetPosition = targetPosition + new Vector3(0, 1.7f, 0) - (targetRotation * Vector3.forward * 1.5f);
+                    transitionTargetRotation = targetRotation;
+                }
+                else
+                {
+                    // Fallback if we can't find the target human
+                    transitionTargetPosition = target.transform.position;
+                    transitionTargetRotation = target.transform.rotation;
+                }
+            }
+            else
+            {
+                // For player camera, use its current position
+                transitionTargetPosition = target.transform.position;
+                transitionTargetRotation = target.transform.rotation;
+            }
+            
+            // Enable both cameras during transition
+            source.enabled = true;
+            target.enabled = true;
+            
+            // Set active camera for the transition
+            activeCamera = target;
+            sourceCamera = source;
+            targetCamera = target;
+            
+            // Set transition parameters
+            transitionProgress = 0f;
+            isTransitioning = true;
+            transitionTargetType = targetType;
+            
+            KillerCam.Logger.LogInfo($"Started camera transition to {targetType}");
+        }
         
         // Track key states for arrow keys
         private static bool wasUpPressed = false;
@@ -607,49 +672,97 @@ namespace KillerCam
         {
             try
             {
-                // Disable the MurdererRoomTracker first to stop culling management
-                MurdererRoomTracker.IsActive = false;
-                
-                // Restore player rooms that were hidden for optimization
-                MurdererRoomTracker.RestorePlayerRooms();
-                
-                // Restore HUD elements
-                RestoreHUDElements();
-                
-                KillerCam.Logger.LogInfo("Deactivated MurdererRoomTracker and restored player rooms");
-                
-                // Disable murderer camera and enable original camera
-                if (murdererCamera != null)
+                // If a transition is already in progress, don't start a new one
+                if (isTransitioning)
                 {
-                    murdererCamera.enabled = false;
-                    KillerCam.Logger.LogInfo("Disabled murderer camera");
+                    KillerCam.Logger.LogInfo("Camera transition already in progress, ignoring switch request");
+                    return;
                 }
                 
-                if (playerCamera != null)
+                // Find the player camera if it's not already set
+                if (playerCamera == null)
                 {
-                    playerCamera.enabled = true;
-                    KillerCam.Logger.LogInfo("Enabled player camera");
-                }
-                else if (CameraController.Instance != null)
-                {
-                    try
+                    playerCamera = FindActiveCamera();
+                    if (playerCamera == null)
                     {
-                        // Try to find and enable the active camera
-                        var activeCamera = FindActiveCamera();
-                        if (activeCamera != null)
+                        KillerCam.Logger.LogError("Could not find player camera for transition");
+                        return;
+                    }
+                }
+                
+                // Get the current camera we're transitioning from
+                Camera sourceCamera = null;
+                if (isSpectatingMurderer && murdererCamera != null)
+                    sourceCamera = murdererCamera;
+                else if (isSpectatingVictim && victimCamera != null)
+                    sourceCamera = victimCamera;
+                
+                if (sourceCamera != null && playerCamera != null)
+                {
+                    // Start the transition to player camera
+                    TransitionCamera(sourceCamera, playerCamera, SpectateTarget.None);
+                    
+                    // These will be executed after the transition completes in the Prefix method
+                    // We'll set up a delayed action in the Prefix method when the transition completes
+                    
+                    // Note: We don't disable the MurdererRoomTracker or restore HUD elements yet
+                    // That will happen after the transition completes
+                }
+                else
+                {
+                    // Fallback to direct camera switch if transition isn't possible
+                    if (playerCamera != null)
+                    {
+                        playerCamera.enabled = true;
+                        KillerCam.Logger.LogInfo("Enabled player camera (direct)");
+                    }
+                    else if (CameraController.Instance != null)
+                    {
+                        try
                         {
-                            activeCamera.enabled = true;
-                            KillerCam.Logger.LogInfo("Enabled found camera as fallback: " + activeCamera.name);
+                            // Try to find and enable the active camera
+                            var activeCamera = FindActiveCamera();
+                            if (activeCamera != null)
+                            {
+                                activeCamera.enabled = true;
+                                KillerCam.Logger.LogInfo("Enabled found camera as fallback: " + activeCamera.name);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            KillerCam.Logger.LogError("Failed to enable camera: " + ex.Message);
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        KillerCam.Logger.LogError("Failed to enable camera: " + ex.Message);
-                    }
+                    
+                    // Disable spectator cameras
+                    if (murdererCamera != null)
+                        murdererCamera.enabled = false;
+                    if (victimCamera != null)
+                        victimCamera.enabled = false;
+                    
+                    // Restore HUD elements
+                    RestoreHUDElements();
+                    
+                    // Disable the MurdererRoomTracker
+                    MurdererRoomTracker.IsActive = false;
+                    MurdererRoomTracker.RestorePlayerRooms();
+                    
+                    // Reset flags
+                    isSpectatingMurderer = false;
+                    isSpectatingVictim = false;
+                    currentSpectateTarget = SpectateTarget.None;
                 }
             }
             catch (Exception ex)
             {
+                // If anything fails, try to revert to player camera directly
+                if (playerCamera != null)
+                    playerCamera.enabled = true;
+                if (murdererCamera != null)
+                    murdererCamera.enabled = false;
+                if (victimCamera != null)
+                    victimCamera.enabled = false;
+                    
                 // If switching fails, try to find and enable the game's camera
                 try
                 {
@@ -657,7 +770,7 @@ namespace KillerCam
                     {
                         try
                         {
-                                        // Try to find and enable the active camera
+                            // Try to find and enable the active camera
                             var activeCamera = FindActiveCamera();
                             if (activeCamera != null)
                             {
@@ -1234,11 +1347,18 @@ namespace KillerCam
             }
         }
         
-        // New method to switch to either murderer or victim camera
+        // Method to switch to either murderer or victim camera with smooth transitions
         private static void SwitchToTargetCamera(SpectateTarget target)
         {
             try
             {
+                // If a transition is already in progress, don't start a new one
+                if (isTransitioning)
+                {
+                    KillerCam.Logger.LogInfo("Camera transition already in progress, ignoring switch request");
+                    return;
+                }
+                
                 // Find the active camera in the scene
                 if (playerCamera == null)
                 {
@@ -1298,33 +1418,13 @@ namespace KillerCam
                     }
                 }
                 
-                // Disable player camera and enable target camera
-                if (playerCamera != null)
-                {
-                    playerCamera.enabled = false;
-                    KillerCam.Logger.LogInfo("Disabled player camera");
-                }
-                
-                // Disable other spectator cameras
-                if (target == SpectateTarget.Murderer && victimCamera != null)
-                    victimCamera.enabled = false;
-                else if (target == SpectateTarget.Victim && murdererCamera != null)
-                    murdererCamera.enabled = false;
-                
                 if (targetCamera != null)
                 {
-                    targetCamera.enabled = true;
+                    // Start a smooth transition from player camera to target camera
+                    TransitionCamera(playerCamera, targetCamera, target);
                     
-                    // Update the camera position immediately
-                    if (targetHuman != null && targetHuman.transform != null)
-                    {
-                        Vector3 targetPosition = targetHuman.transform.position;
-                        Quaternion targetRotation = targetHuman.transform.rotation;
-                        
-                        // Position the camera behind and slightly above the target
-                        targetCamera.transform.position = targetPosition + new Vector3(0, 1.7f, 0) - (targetRotation * Vector3.forward * 1.5f);
-                        targetCamera.transform.rotation = targetRotation;
-                    }
+                    // Hide HUD elements
+                    HideHUDElements();
                     
                     // Enable the MurdererRoomTracker to handle culling
                     if (targetRoom != null)
@@ -1338,11 +1438,6 @@ namespace KillerCam
                         KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + targetRoom.name);
                     }
                 }
-                
-                KillerCam.Logger.LogInfo("Switched to " + target.ToString() + " camera");
-                
-                // Hide HUD elements
-                HideHUDElements();
             }
             catch (Exception ex)
             {
