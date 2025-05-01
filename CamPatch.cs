@@ -690,68 +690,50 @@ namespace KillerCam
                     }
                 }
                 
-                // Get the current camera we're transitioning from
-                Camera sourceCamera = null;
-                if (isSpectatingMurderer && murdererCamera != null)
-                    sourceCamera = murdererCamera;
-                else if (isSpectatingVictim && victimCamera != null)
-                    sourceCamera = victimCamera;
+                // Direct switch back to player camera (no transition)
+                KillerCam.Logger.LogInfo("Direct switch back to player camera");
                 
-                if (sourceCamera != null && playerCamera != null)
+                // Enable player camera
+                if (playerCamera != null)
                 {
-                    // Start the transition to player camera
-                    TransitionCamera(sourceCamera, playerCamera, SpectateTarget.None);
-                    
-                    // These will be executed after the transition completes in the Prefix method
-                    // We'll set up a delayed action in the Prefix method when the transition completes
-                    
-                    // Note: We don't disable the MurdererRoomTracker or restore HUD elements yet
-                    // That will happen after the transition completes
+                    playerCamera.enabled = true;
+                    KillerCam.Logger.LogInfo("Enabled player camera");
                 }
-                else
+                else if (CameraController.Instance != null)
                 {
-                    // Fallback to direct camera switch if transition isn't possible
-                    if (playerCamera != null)
+                    try
                     {
-                        playerCamera.enabled = true;
-                        KillerCam.Logger.LogInfo("Enabled player camera (direct)");
-                    }
-                    else if (CameraController.Instance != null)
-                    {
-                        try
+                        // Try to find and enable the active camera
+                        var activeCamera = FindActiveCamera();
+                        if (activeCamera != null)
                         {
-                            // Try to find and enable the active camera
-                            var activeCamera = FindActiveCamera();
-                            if (activeCamera != null)
-                            {
-                                activeCamera.enabled = true;
-                                KillerCam.Logger.LogInfo("Enabled found camera as fallback: " + activeCamera.name);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            KillerCam.Logger.LogError("Failed to enable camera: " + ex.Message);
+                            activeCamera.enabled = true;
+                            KillerCam.Logger.LogInfo("Enabled found camera as fallback: " + activeCamera.name);
                         }
                     }
-                    
-                    // Disable spectator cameras
-                    if (murdererCamera != null)
-                        murdererCamera.enabled = false;
-                    if (victimCamera != null)
-                        victimCamera.enabled = false;
-                    
-                    // Restore HUD elements
-                    RestoreHUDElements();
-                    
-                    // Disable the MurdererRoomTracker
-                    MurdererRoomTracker.IsActive = false;
-                    MurdererRoomTracker.RestorePlayerRooms();
-                    
-                    // Reset flags
-                    isSpectatingMurderer = false;
-                    isSpectatingVictim = false;
-                    currentSpectateTarget = SpectateTarget.None;
+                    catch (Exception ex)
+                    {
+                        KillerCam.Logger.LogError("Failed to enable camera: " + ex.Message);
+                    }
                 }
+                
+                // Disable spectator cameras
+                if (murdererCamera != null)
+                    murdererCamera.enabled = false;
+                if (victimCamera != null)
+                    victimCamera.enabled = false;
+                
+                // Restore HUD elements
+                RestoreHUDElements();
+                
+                // Disable the MurdererRoomTracker
+                MurdererRoomTracker.IsActive = false;
+                MurdererRoomTracker.RestorePlayerRooms();
+                
+                // Reset flags
+                isSpectatingMurderer = false;
+                isSpectatingVictim = false;
+                currentSpectateTarget = SpectateTarget.None;
             }
             catch (Exception ex)
             {
