@@ -670,6 +670,21 @@ namespace KillerCam
         {
             try
             {
+                // Initialize rotation smoothing variables
+                Transform initialTargetTransform = null;
+                if (targetType == SpectateTarget.Murderer && murderController?.currentMurderer != null)
+                    initialTargetTransform = murderController.currentMurderer.transform;
+                else if (targetType == SpectateTarget.Victim && murderController?.currentVictim != null)
+                    initialTargetTransform = murderController.currentVictim.transform;
+
+                if (initialTargetTransform != null)
+                {
+                    Quaternion initialRotation = initialTargetTransform.rotation;
+                    Quaternion initialOffsetRotation = initialRotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+                    targetCameraRotation = initialOffsetRotation; // Start smoothing towards the initial offset rotation
+                    lastSignificantTargetRotation = initialRotation; // Set the initial significant rotation
+                }
+
                 // If a transition is already in progress, don't start a new one
                 if (isTransitioning)
                 {
@@ -721,7 +736,7 @@ namespace KillerCam
                         if (playerCamera != null)
                         {
                             victimCamera.CopyFrom(playerCamera);
-                            victimCamera.depth = playerCamera.depth; // Ensure same rendering order
+                            victimCamera.depth = playerCamera.depth + 1; // Render after main camera
                         }
                         
                         KillerCam.Logger.LogInfo("Created victim camera");
@@ -939,10 +954,18 @@ namespace KillerCam
         private static float cameraRotationSpeed = 3.5f;
         
         // Camera collision variables
-        private static float defaultCameraDistance = 1.5f;  // Default distance behind the murderer
-        private static float minCameraDistance = 0.5f;     // Minimum distance when colliding with objects
-        private static float collisionRadius = 0.2f;       // Radius of collision detection
-        private static float currentDistance = 1.5f;      // Current camera distance (will be adjusted based on collisions)
+        private static float defaultCameraDistance = 1.5f;  // Default distance behind the target
+        private static float minCameraDistance = 0.5f;     // Minimum distance when colliding
+        
+        // Rotation Smoothing Variables
+        private static float rotationThresholdDegrees = 2.0f; // Degrees target must rotate to trigger camera rotation
+        private static float rotationSmoothFactor = 5.0f; // Higher value = faster smoothing
+        private static Quaternion targetCameraRotation; // The rotation the camera is smoothly moving towards
+        private static Quaternion lastSignificantTargetRotation; // Target's rotation when targetCameraRotation was last updated
+        
+        // Previous manual rotation state for change detection
+        private static float prevCameraRotationX = 0f;
+        private static float prevCameraYOffset = 0f;
         
         private static void UpdateMurdererCamera()
         {
@@ -973,14 +996,25 @@ namespace KillerCam
                 Vector3 targetPosition = murdererTransform.position + new Vector3(0, 1.7f, 0);
                 
                 // Apply rotation offset from arrow keys
-                Quaternion targetRotation = murdererTransform.rotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+                Quaternion currentTargetRotation = murdererTransform.rotation;
+                Quaternion desiredRotation = currentTargetRotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+ 
+                // Check if target rotation changed significantly OR if manual input changed
+                float angleDiff = Quaternion.Angle(lastSignificantTargetRotation, currentTargetRotation);
+                bool manualInputChanged = cameraRotationX != prevCameraRotationX || cameraYOffset != prevCameraYOffset;
                 
+                if (angleDiff > rotationThresholdDegrees || manualInputChanged)
+                {
+                    targetCameraRotation = desiredRotation; // Update the target rotation for smoothing
+                    lastSignificantTargetRotation = currentTargetRotation; // Store this as the last significant rotation
+                }
+ 
                 // Get the direction the camera should be looking
-                Vector3 cameraDirection = targetRotation * Vector3.forward * -1f;
-                
+                // *** Use instantaneous desiredRotation for position calculation ***
+                Vector3 cameraDirection = desiredRotation * Vector3.forward * -1f;
+ 
                 // Default distance from the murderer
-                float adjustedDistance = defaultCameraDistance;
-                RaycastHit hit;
+                float currentDistance = defaultCameraDistance;
                 
                 // Only check for collisions if we're not transitioning
                 if (!isTransitioning)
@@ -991,6 +1025,7 @@ namespace KillerCam
                     float closestHitDistance = defaultCameraDistance;
                     
                     // Main raycast straight from the target position
+                    RaycastHit hit;
                     if (Physics.Raycast(targetPosition, cameraDirection, out hit, defaultCameraDistance))
                     {
                         hitDetected = true;
@@ -999,10 +1034,10 @@ namespace KillerCam
                     
                     // Additional raycasts in slightly offset directions to simulate a sphere
                     Vector3[] offsets = new Vector3[] {
-                        new Vector3(collisionRadius, 0, 0),
-                        new Vector3(-collisionRadius, 0, 0),
-                        new Vector3(0, collisionRadius, 0),
-                        new Vector3(0, -collisionRadius, 0)
+                        new Vector3(0.2f, 0, 0),
+                        new Vector3(-0.2f, 0, 0),
+                        new Vector3(0, 0.2f, 0),
+                        new Vector3(0, -0.2f, 0)
                     };
                     
                     foreach (Vector3 offset in offsets)
@@ -1020,11 +1055,8 @@ namespace KillerCam
                     if (hitDetected)
                     {
                         // If we hit something, adjust the distance to be just before the hit point
-                        adjustedDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
+                        currentDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
                     }
-                    
-                    // Smoothly adjust the current distance
-                    currentDistance = Mathf.Lerp(currentDistance, adjustedDistance, Time.deltaTime * 5f);
                 }
                 else
                 {
@@ -1046,8 +1078,9 @@ namespace KillerCam
                     smoothTime
                 );
                 
-                // Update the camera rotation to look at the murderer (plus our offset)
-                murdererCamera.transform.rotation = targetRotation;
+                // Smoothly interpolate camera rotation towards the target rotation
+                float rotationSmoothTime = rotationSmoothFactor * Time.deltaTime;
+                murdererCamera.transform.rotation = Quaternion.Slerp(murdererCamera.transform.rotation, targetCameraRotation, rotationSmoothTime);
                 
                 // Update culling for the murderer's room if needed
                 Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
@@ -1055,6 +1088,10 @@ namespace KillerCam
                 {
                     SpectatorRoomTracker.UpdateTargetRoom(murdererHuman.currentRoom);
                 }
+                
+                // Update previous manual rotation state
+                prevCameraRotationX = cameraRotationX;
+                prevCameraYOffset = cameraYOffset;
             }
             catch (Exception ex)
             {
@@ -1083,15 +1120,25 @@ namespace KillerCam
                 Vector3 targetPosition = victimTransform.position + new Vector3(0, 1.7f, 0);
                 
                 // Apply rotation offset from arrow keys
-                Quaternion targetRotation = victimTransform.rotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+                Quaternion currentTargetRotation = victimTransform.rotation;
+                Quaternion desiredRotation = currentTargetRotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+ 
+                // Check if target rotation changed significantly OR if manual input changed
+                float angleDiff = Quaternion.Angle(lastSignificantTargetRotation, currentTargetRotation);
+                bool manualInputChanged = cameraRotationX != prevCameraRotationX || cameraYOffset != prevCameraYOffset;
                 
+                if (angleDiff > rotationThresholdDegrees || manualInputChanged)
+                {
+                    targetCameraRotation = desiredRotation; // Update the target rotation for smoothing
+                    lastSignificantTargetRotation = currentTargetRotation; // Store this as the last significant rotation
+                }
+ 
                 // Get the direction the camera should be looking
-                Vector3 cameraDirection = targetRotation * Vector3.forward * -1f;
-                
+                // *** Use instantaneous desiredRotation for position calculation ***
+                Vector3 cameraDirection = desiredRotation * Vector3.forward * -1f;
+ 
                 // Default distance from the victim
-                float defaultCameraDistance = 1.5f;
                 float currentDistance = defaultCameraDistance;
-                float minCameraDistance = 0.5f;
                 
                 // Only check for collisions if we're not transitioning
                 if (!isTransitioning)
@@ -1149,8 +1196,9 @@ namespace KillerCam
                     smoothDampTime
                 );
                 
-                // Update the camera rotation to look at the victim (plus our offset)
-                victimCamera.transform.rotation = targetRotation;
+                // Smoothly interpolate camera rotation towards the target rotation
+                float rotationSmoothTime = rotationSmoothFactor * Time.deltaTime;
+                victimCamera.transform.rotation = Quaternion.Slerp(victimCamera.transform.rotation, targetCameraRotation, rotationSmoothTime);
                 
                 // Update culling for the victim's room if needed
                 Human victimHuman = murderController.currentVictim.GetComponent<Human>();
@@ -1158,6 +1206,10 @@ namespace KillerCam
                 {
                     SpectatorRoomTracker.UpdateTargetRoom(victimHuman.currentRoom);
                 }
+                
+                // Update previous manual rotation state
+                prevCameraRotationX = cameraRotationX;
+                prevCameraYOffset = cameraYOffset;
             }
             catch (Exception ex)
             {
@@ -1165,9 +1217,6 @@ namespace KillerCam
             }
         }
         
-        // Method to switch to either murderer or victim camera with smooth transitions
-        // Removed the duplicate SwitchToTargetCamera method that was here
-
         // Method to create the victim camera if it doesn't exist
          private static void CreateVictimCamera()
         {
