@@ -6,6 +6,8 @@ using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
 using BepInEx.Unity.IL2CPP.UnityEngine;
+using KillerCam; // Add this if SpectatorUI is in the KillerCam namespace
+using TMPro;    // Add this if using TextMeshPro in SpectatorUI
 
 namespace KillerCam
 {
@@ -25,7 +27,7 @@ namespace KillerCam
         private static SpectateTarget currentSpectateTarget = SpectateTarget.None;
         
         // Enum to track which camera we're using
-        private enum SpectateTarget
+        public enum SpectateTarget
         {
             None,
             Murderer,
@@ -67,7 +69,7 @@ namespace KillerCam
         private static Vector3 transitionTargetPosition;
         private static Quaternion transitionTargetRotation;
         private static float transitionProgress = 0f;
-        private static float transitionDuration = 1.5f; // Seconds for a complete transition
+        private static float transitionDuration = 0.5f; // Added duration for smooth transition
         private static SpectateTarget transitionTargetType = SpectateTarget.None;
         private static Camera activeCamera = null; // The currently active camera during transitions
         private static Camera sourceCamera = null; // The camera we're transitioning from
@@ -235,7 +237,7 @@ namespace KillerCam
                 if (isTransitioning)
                 {
                     // Update the transition progress
-                    transitionProgress += Time.deltaTime / transitionDuration;
+                    transitionProgress += Time.deltaTime / transitionDuration; // Use transitionDuration
                     
                     // Clamp progress to 0-1 range
                     transitionProgress = Mathf.Clamp01(transitionProgress);
@@ -290,6 +292,8 @@ namespace KillerCam
                         }
                         else
                         {
+                            SpectatorUI.HideText();
+
                             // Transition back to player
                             isSpectatingMurderer = false;
                             isSpectatingVictim = false;
@@ -541,22 +545,22 @@ namespace KillerCam
         {
             try
             {
+                // Clear spectator UI text before starting transition back
+                SpectatorUI.UpdateText("");
+                
+                KillerCam.Logger.LogInfo("Attempting to switch back to player camera.");
+ 
+                // Find the player camera if not already cached
+                if (playerCamera == null)
+                {
+                    playerCamera = FindActiveCamera();
+                }
+                
                 // If a transition is already in progress, don't start a new one
                 if (isTransitioning)
                 {
                     KillerCam.Logger.LogInfo("Camera transition already in progress, ignoring switch request");
                     return;
-                }
-                
-                // Find the player camera if it's not already set
-                if (playerCamera == null)
-                {
-                    playerCamera = FindActiveCamera();
-                    if (playerCamera == null)
-                    {
-                        KillerCam.Logger.LogError("Could not find player camera for transition");
-                        return;
-                    }
                 }
                 
                 // Direct switch back to player camera (no transition)
@@ -604,6 +608,11 @@ namespace KillerCam
                 isSpectatingMurderer = false;
                 isSpectatingVictim = false;
                 currentSpectateTarget = SpectateTarget.None;
+                
+                // Ensure Spectator UI is hidden when fully back to player
+                SpectatorUI.HideText();
+                
+                KillerCam.Logger.LogInfo("Switched to player camera. Press " + toggleKey.ToString() + " to switch back.");
             }
             catch (Exception ex)
             {
@@ -1118,6 +1127,13 @@ namespace KillerCam
                     
                     // Start a smooth transition from the source camera to target camera
                     TransitionCamera(sourceCamera, targetCamera, target);
+                    
+                    // Update Spectator UI Text
+                    string targetName = target.ToString(); // Basic name for now
+                    // TODO: Get actual player name if possible
+                    // Human targetHuman = (target == SpectateTarget.Murderer) ? murderController?.currentMurderer?.GetComponent<Human>() : murderController?.currentVictim?.GetComponent<Human>();
+                    // if(targetHuman != null) targetName = targetHuman.playerName; // Example: Adjust property name as needed
+                    SpectatorUI.UpdateText($"Spectating: {targetName}");
                     
                     // Enable the SpectatorRoomTracker to handle culling
                     if (targetRoom != null)
