@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -388,26 +388,41 @@ namespace KillerCam
             }
             else
             {
-                // If we're currently spectating something else, switch to player first
+                // If we're currently spectating something else, directly switch to the new target
+                // without going back to player camera first
                 if (isSpectatingMurderer || isSpectatingVictim)
                 {
-                    SwitchToPlayerCamera();
-                    isSpectatingMurderer = false;
-                    isSpectatingVictim = false;
-                }
-                
-                // Now switch to the requested target
-                if (target == SpectateTarget.Murderer)
-                {
+                    // Direct transition between spectate targets
                     SwitchToTargetCamera(target);
-                    isSpectatingMurderer = true;
-                    isSpectatingVictim = false;
+                    
+                    // Update flags based on target
+                    if (target == SpectateTarget.Murderer)
+                    {
+                        isSpectatingMurderer = true;
+                        isSpectatingVictim = false;
+                    }
+                    else if (target == SpectateTarget.Victim)
+                    {
+                        isSpectatingVictim = true;
+                        isSpectatingMurderer = false;
+                    }
                 }
-                else if (target == SpectateTarget.Victim)
+                else
                 {
+                    // Not currently spectating, so switch from player to target
                     SwitchToTargetCamera(target);
-                    isSpectatingVictim = true;
-                    isSpectatingMurderer = false;
+                    
+                    // Update flags based on target
+                    if (target == SpectateTarget.Murderer)
+                    {
+                        isSpectatingMurderer = true;
+                        isSpectatingVictim = false;
+                    }
+                    else if (target == SpectateTarget.Victim)
+                    {
+                        isSpectatingVictim = true;
+                        isSpectatingMurderer = false;
+                    }
                 }
                 
                 // Update current target
@@ -1024,7 +1039,7 @@ namespace KillerCam
                 
                 // Smoothly move the camera to the new position - use a new velocity vector like the victim camera
                 Vector3 currentVelocity = Vector3.zero;
-                float smoothTime = 0.1f; // Increased from 0.1f for smoother auto-rotation
+                float smoothTime = 0.12f; // Increased from 0.1f for smoother auto-rotation
                 
                 murdererCameraObject.transform.position = Vector3.SmoothDamp(
                     murdererCameraObject.transform.position,
@@ -1127,7 +1142,7 @@ namespace KillerCam
                 
                 // Smoothly move the camera to the new position
                 Vector3 currentVelocity = Vector3.zero;
-                float smoothDampTime = 0.1f; // Increased from 0.1f for smoother auto-rotation
+                float smoothDampTime = 0.12f; // Increased from 0.1f for smoother auto-rotation
                 
                 victimCamera.transform.position = Vector3.SmoothDamp(
                     victimCamera.transform.position,
@@ -1164,7 +1179,7 @@ namespace KillerCam
                     return;
                 }
                 
-                // Find the active camera in the scene
+                // Find the active camera in the scene if needed
                 if (playerCamera == null)
                 {
                     // Try to find the active camera
@@ -1225,8 +1240,29 @@ namespace KillerCam
                 
                 if (targetCamera != null)
                 {
-                    // Start a smooth transition from player camera to target camera
-                    TransitionCamera(playerCamera, targetCamera, target);
+                    // Determine the source camera for the transition
+                    Camera sourceCamera;
+                    
+                    // If we're already spectating, use the current active camera as the source
+                    if (isSpectatingMurderer && murdererCamera != null)
+                    {
+                        sourceCamera = murdererCamera;
+                        KillerCam.Logger.LogInfo("Using murderer camera as transition source");
+                    }
+                    else if (isSpectatingVictim && victimCamera != null)
+                    {
+                        sourceCamera = victimCamera;
+                        KillerCam.Logger.LogInfo("Using victim camera as transition source");
+                    }
+                    else
+                    {
+                        // Default to player camera if not currently spectating
+                        sourceCamera = playerCamera;
+                        KillerCam.Logger.LogInfo("Using player camera as transition source");
+                    }
+                    
+                    // Start a smooth transition from the source camera to target camera
+                    TransitionCamera(sourceCamera, targetCamera, target);
                     
                     // Hide HUD elements
                     HideHUDElements();
