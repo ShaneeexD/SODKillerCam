@@ -720,8 +720,15 @@ namespace KillerCam
                         {
                             victimCamera.CopyFrom(playerCamera);
                             victimCamera.depth = playerCamera.depth + 1; // Render after main camera
+                            victimCamera.useOcclusionCulling = false; // Explicitly disable occlusion culling
                         }
-                        
+                        else
+                        {
+                            KillerCam.Logger.LogWarning("Could not find player camera to copy settings for VictimCamera.");
+                            // Set some default depth if player camera isn't found
+                            victimCamera.depth = 1; 
+                            victimCamera.useOcclusionCulling = false; // Also disable if using defaults
+                        }
                         KillerCam.Logger.LogInfo("Created victim camera");
                     }
                     targetCamera = victimCamera;
@@ -1215,12 +1222,14 @@ namespace KillerCam
                 {
                     victimCamera.CopyFrom(playerCamera);
                     victimCamera.depth = playerCamera.depth + 1; // Render after main camera
+                    victimCamera.useOcclusionCulling = false; // Explicitly disable occlusion culling
                 }
                  else
                 {
                      KillerCam.Logger.LogWarning("Could not find player camera to copy settings for VictimCamera.");
                     // Set some default depth if player camera isn't found
                     victimCamera.depth = 1; 
+                    victimCamera.useOcclusionCulling = false; // Also disable if using defaults
                 }
                 victimCamera.enabled = false; // Start disabled
                 GameObject.DontDestroyOnLoad(victimCameraObject);
