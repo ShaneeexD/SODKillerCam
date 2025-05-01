@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -816,124 +816,42 @@ namespace KillerCam
             {
                 KillerCam.Logger.LogInfo("Creating murderer camera");
                 
-                // Get murderer location directly from MurderController.Instance
-                murderController = MurderController.Instance;
-                KillerCam.Logger.LogInfo("MurderController: " + (murderController != null ? "Not null" : "Null"));
-                
-                Vector3 murdererPos;
-                
-                if (murderController != null && murderController.currentMurderer != null)
-                {
-                    murdererPos = murderController.currentMurderer.transform.position;
-                    KillerCam.Logger.LogInfo("Using murderer position: " + murdererPos.ToString());
-                }
-                else
-                {
-                    // Default position if we can't find the murderer
-                    murdererPos = new Vector3(0, 70, 0);
-                    KillerCam.Logger.LogInfo("Using default position: " + murdererPos.ToString());
-                }
-                
-                // Create a new camera object
+                // Create a new camera object - keep it simple like the victim camera
                 murdererCameraObject = new GameObject("MurdererCamera");
                 murdererCamera = murdererCameraObject.AddComponent<Camera>();
                 
-                // Set camera to render on top of everything
-                murdererCamera.depth = 100; // Higher depth means it renders on top of other cameras
-                
-                // Position the camera behind and above the murderer (third-person style)
-                float heightOffset = 2.5f;  // Higher up for better view
-                float backOffset = 1.5f;    // Distance behind the murderer
-                
-                // Get the murderer's forward direction if available
-                Vector3 behindOffset = Vector3.zero;
-                if (murderController != null && murderController.currentMurderer != null)
+                // Find the player camera if needed
+                if (playerCamera == null)
                 {
-                    // Calculate position behind the murderer based on their forward direction
-                    behindOffset = -murderController.currentMurderer.transform.forward * backOffset;
+                    playerCamera = FindActiveCamera();
                 }
                 
-                // Set the camera position
-                murdererCameraObject.transform.position = new Vector3(
-                    murdererPos.x + behindOffset.x, 
-                    murdererPos.y + heightOffset, 
-                    murdererPos.z + behindOffset.z
-                );
-                
-                // Reset rotation values to defaults
-                cameraRotationX = 0f;
-                cameraRotationY = 0f;
-                
-                // Set initial rotation
-                if (murderController != null && murderController.currentMurderer != null)
+                // Copy settings from player camera - just like the victim camera does
+                if (playerCamera != null)
                 {
-                    // Get the murderer's rotation as a starting point
-                    Quaternion murdererRotation = murderController.currentMurderer.transform.rotation;
-                    Vector3 murdererEuler = murdererRotation.eulerAngles;
+                    // Use CopyFrom to get all the same settings as the player camera
+                    murdererCamera.CopyFrom(playerCamera);
+                    murdererCamera.depth = playerCamera.depth; // Use the same depth as player camera
                     
-                    // Initialize our rotation tracking variables
-                    cameraRotationY = murdererEuler.y; // Horizontal rotation (left/right)
-                    cameraRotationX = 0f; // Start with a level view
-                    
-                    // Apply the initial rotation
-                    murdererCameraObject.transform.rotation = Quaternion.Euler(cameraRotationX, cameraRotationY, 0);
-                    KillerCam.Logger.LogInfo("Set initial camera rotation: X=" + cameraRotationX + ", Y=" + cameraRotationY);
-                }
-                
-                // Copy settings from the game's camera if possible
-                Camera sourceCam = null;
-                
-                if (CameraController.Instance != null)
-                {
-                    try
-                    {
-                        // Try to find the active camera
-                        sourceCam = FindActiveCamera();
-                        if (sourceCam != null)
-                        {
-                            KillerCam.Logger.LogInfo("Using found camera as source: " + sourceCam.name);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        KillerCam.Logger.LogError("Failed to get camera: " + ex.Message);
-                    }
-                }
-                else if (Camera.main != null)
-                {
-                    sourceCam = Camera.main;
-                    KillerCam.Logger.LogInfo("Using Camera.main as source");
-                }
-                
-                if (sourceCam != null)
-                {
-                    // Copy essential camera settings
-                    murdererCamera.fieldOfView = sourceCam.fieldOfView;
-                    murdererCamera.nearClipPlane = sourceCam.nearClipPlane;
-                    murdererCamera.farClipPlane = sourceCam.farClipPlane;
-                    murdererCamera.cullingMask = sourceCam.cullingMask;
-                    
-                    // Set up occlusion culling settings to prevent rendering issues
-                    murdererCamera.useOcclusionCulling = false; // Disable occlusion culling
-                    
-                    // We won't try to copy components in IL2CPP as GetComponents<T>() is not available
-                    KillerCam.Logger.LogInfo("Skipping component copying due to IL2CPP compatibility");
+                    // Disable occlusion culling to prevent rendering issues
+                    murdererCamera.useOcclusionCulling = false;
                 }
                 else
                 {
-                    // Fallback settings if no source camera is found
+                    // Fallback settings if no player camera is found
                     murdererCamera.fieldOfView = 60f;
                     murdererCamera.nearClipPlane = 0.1f;
                     murdererCamera.farClipPlane = 1000f;
-                    murdererCamera.useOcclusionCulling = false; // Disable occlusion culling
-                    KillerCam.Logger.LogWarning("No source camera found, using default settings");
+                    murdererCamera.useOcclusionCulling = false;
+                    KillerCam.Logger.LogWarning("No player camera found, using default settings");
                 }
+                
+                // Reset rotation values to defaults
+                cameraRotationX = 0f;
+                cameraYOffset = 0f;
                 
                 // Disable it initially
                 murdererCamera.enabled = false;
-                
-                // Don't destroy when loading new scenes
-                GameObject.DontDestroyOnLoad(murdererCameraObject);
                 
                 KillerCam.Logger.LogInfo("Successfully created murderer camera");
             }
@@ -1004,19 +922,13 @@ namespace KillerCam
         
         // Variables for camera rotation control
         private static float cameraRotationX = 0f;
-        private static float cameraRotationY = 0f;
-        private static float targetRotationY = 0f; // Target Y rotation to smoothly move towards
         private static float cameraYOffset = 0f; // Manual offset for left/right rotation
         private static float cameraRotationSpeed = 3.5f;
-        private static float rotationSmoothTime = 0.3f; // Time to smooth rotation (higher = smoother but slower)
-        private static float rotationVelocity = 0f; // Used by SmoothDampAngle
         
         // Camera collision variables
         private static float defaultCameraDistance = 1.5f;  // Default distance behind the murderer
         private static float minCameraDistance = 0.5f;     // Minimum distance when colliding with objects
         private static float collisionRadius = 0.2f;       // Radius of collision detection
-        private static float smoothDampTime = 0.1f;        // Smoothing time for camera movement
-        private static Vector3 currentCameraVelocity = Vector3.zero; // For SmoothDamp function
         private static float currentDistance = 1.5f;      // Current camera distance (will be adjusted based on collisions)
         
         private static void UpdateMurdererCamera()
@@ -1112,7 +1024,7 @@ namespace KillerCam
                 
                 // Smoothly move the camera to the new position - use a new velocity vector like the victim camera
                 Vector3 currentVelocity = Vector3.zero;
-                float smoothTime = 0.1f; // Match the victim camera's smooth time
+                float smoothTime = 0.1f; // Increased from 0.1f for smoother auto-rotation
                 
                 murdererCameraObject.transform.position = Vector3.SmoothDamp(
                     murdererCameraObject.transform.position,
@@ -1215,7 +1127,7 @@ namespace KillerCam
                 
                 // Smoothly move the camera to the new position
                 Vector3 currentVelocity = Vector3.zero;
-                float smoothDampTime = 0.1f;
+                float smoothDampTime = 0.1f; // Increased from 0.1f for smoother auto-rotation
                 
                 victimCamera.transform.position = Vector3.SmoothDamp(
                     victimCamera.transform.position,
