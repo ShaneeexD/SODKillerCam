@@ -93,6 +93,7 @@ namespace KillerCam
         {
             if (spectatorTextObject != null)
             {
+                HideText(); // Ensure text is hidden before destroying
                 GameObject.Destroy(spectatorTextObject);
                 spectatorTextObject = null;
                 spectatorText = null;
