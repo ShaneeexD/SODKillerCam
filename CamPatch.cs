@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1129,11 +1129,20 @@ namespace KillerCam
                     TransitionCamera(sourceCamera, targetCamera, target);
                     
                     // Update Spectator UI Text
-                    string targetName = target.ToString(); // Basic name for now
-                    // TODO: Get actual player name if possible
-                    // Human targetHuman = (target == SpectateTarget.Murderer) ? murderController?.currentMurderer?.GetComponent<Human>() : murderController?.currentVictim?.GetComponent<Human>();
-                    // if(targetHuman != null) targetName = targetHuman.playerName; // Example: Adjust property name as needed
-                    SpectatorUI.UpdateText($"Spectating: {targetName}");
+                    string targetRole = target.ToString();
+                    string displayName = targetRole; // Default to role name
+ 
+                    // Attempt to get the actual player name
+                    if (targetHuman != null && !string.IsNullOrEmpty(targetHuman.firstName) && !string.IsNullOrEmpty(targetHuman.surName))
+                    {
+                        displayName = $"{targetRole} ({targetHuman.firstName} {targetHuman.surName})";
+                    }
+                    else
+                    {
+                        KillerCam.Logger.LogWarning($"Could not retrieve name for {targetRole}.");
+                    }
+                    
+                    SpectatorUI.UpdateText($"Spectating: {displayName}");
                     
                     // Enable the SpectatorRoomTracker to handle culling
                     if (targetRoom != null)
