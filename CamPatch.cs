@@ -620,6 +620,14 @@ namespace KillerCam
         private static float cameraYOffset = 0f; // Manual offset for left/right rotation
         private static float cameraRotationSpeed = 3.5f;
         
+        // Camera collision variables
+        private static float defaultCameraDistance = 1.5f;  // Default distance behind the murderer
+        private static float minCameraDistance = 0.5f;     // Minimum distance when colliding with objects
+        private static float collisionRadius = 0.2f;       // Radius of collision detection
+        private static float smoothDampTime = 0.1f;        // Smoothing time for camera movement
+        private static Vector3 currentCameraVelocity = Vector3.zero; // For SmoothDamp function
+        private static float currentDistance = 1.5f;      // Current camera distance (will be adjusted based on collisions)
+        
         private static void UpdateMurdererCamera()
         {
             try
@@ -645,8 +653,6 @@ namespace KillerCam
                     // This makes the camera rotate with the murderer when they turn
                     Vector3 murdererEuler = murdererRot.eulerAngles;
                     cameraRotationY = murdererEuler.y;
-                    
-                    KillerCam.Logger.LogInfo("UpdateMurdererCamera - Got position: " + murdererPos.ToString() + ", rotation: " + murdererEuler.y);
                 }
                 else
                 {
@@ -659,25 +665,71 @@ namespace KillerCam
                 {
                     // Position the camera behind and above the murderer (third-person style)
                     float heightOffset = 2.5f;  // Higher up for better view
-                    float backOffset = 1.5f;    // Distance behind the murderer
                     
-                    // Get the murderer's forward direction if available
-                    Vector3 behindOffset = Vector3.zero;
-                    if (murderController != null && murderController.currentMurderer != null)
+                    // Apply the rotation first (combining murderer's Y rotation with manual X rotation and Y offset)
+                    Quaternion cameraRotation = Quaternion.Euler(cameraRotationX, cameraRotationY + cameraYOffset, 0);
+                    murdererCamera.transform.rotation = cameraRotation;
+                    
+                    // Calculate the desired camera position without collision
+                    Vector3 cameraDirection = -murdererCamera.transform.forward; // Direction from murderer to camera
+                    Vector3 targetPosition = murdererPos + new Vector3(0, heightOffset, 0); // Position above murderer
+                    Vector3 desiredPosition = targetPosition + (cameraDirection * defaultCameraDistance);
+                    
+                    // Perform collision detection using raycast
+                    float adjustedDistance = defaultCameraDistance;
+                    RaycastHit hit;
+                    
+                    // Check for collisions using a simple raycast instead of SphereCast (more compatible with IL2CPP)
+                    // Cast multiple rays in slightly different directions to simulate a sphere
+                    bool hitDetected = false;
+                    float closestHitDistance = defaultCameraDistance;
+                    
+                    // Main raycast straight from the target position
+                    if (Physics.Raycast(targetPosition, cameraDirection, out hit, defaultCameraDistance))
                     {
-                        // Calculate position behind the murderer based on their forward direction
-                        behindOffset = -murderController.currentMurderer.transform.forward * backOffset;
+                        hitDetected = true;
+                        closestHitDistance = hit.distance;
                     }
                     
-                    // Update camera position to follow the murderer in third-person style
-                    murdererCameraObject.transform.position = new Vector3(
-                        murdererPos.x + behindOffset.x,
-                        murdererPos.y + heightOffset,
-                        murdererPos.z + behindOffset.z
-                    );
+                    // Additional raycasts in slightly offset directions to simulate a sphere
+                    Vector3[] offsets = new Vector3[] {
+                        new Vector3(collisionRadius, 0, 0),
+                        new Vector3(-collisionRadius, 0, 0),
+                        new Vector3(0, collisionRadius, 0),
+                        new Vector3(0, -collisionRadius, 0)
+                    };
                     
-                    // Apply the updated rotation (combining murderer's Y rotation with manual X rotation and Y offset)
-                    murdererCamera.transform.rotation = Quaternion.Euler(cameraRotationX, cameraRotationY + cameraYOffset, 0);
+                    foreach (Vector3 offset in offsets)
+                    {
+                        if (Physics.Raycast(targetPosition + offset, cameraDirection, out hit, defaultCameraDistance))
+                        {
+                            hitDetected = true;
+                            if (hit.distance < closestHitDistance)
+                            {
+                                closestHitDistance = hit.distance;
+                            }
+                        }
+                    }
+                    
+                    if (hitDetected)
+                    {
+                        // If we hit something, adjust the distance to be just before the hit point
+                        adjustedDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
+                    }
+                    
+                    // Smoothly adjust the current distance
+                    currentDistance = Mathf.Lerp(currentDistance, adjustedDistance, Time.deltaTime * 5f);
+                    
+                    // Calculate the final camera position with collision avoidance
+                    Vector3 finalPosition = targetPosition + (cameraDirection * currentDistance);
+                    
+                    // Smoothly move the camera to the new position
+                    murdererCameraObject.transform.position = Vector3.SmoothDamp(
+                        murdererCameraObject.transform.position,
+                        finalPosition,
+                        ref currentCameraVelocity,
+                        smoothDampTime
+                    );
                 }
             }
             catch (Exception ex)
