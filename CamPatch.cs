@@ -92,7 +92,8 @@ namespace KillerCam
             transitionStartRotation = source.transform.rotation;
             
             // If transitioning to a target camera (murderer or victim), calculate position behind them
-            if (targetType != SpectateTarget.None)
+            // NOTE: We no longer handle SpectateTarget.None here, as returning to player is immediate.
+            if (targetType != SpectateTarget.None) 
             {
                 // Get the target human
                 Human targetHuman = null;
@@ -112,16 +113,8 @@ namespace KillerCam
                 }
                 else
                 {
-                    // Fallback if we can't find the target human
-                    transitionTargetPosition = target.transform.position;
-                    transitionTargetRotation = target.transform.rotation;
+                    SwitchToPlayerCamera();
                 }
-            }
-            else
-            {
-                // For player camera, use its current position
-                transitionTargetPosition = target.transform.position;
-                transitionTargetRotation = target.transform.rotation;
             }
             
             // Make sure all cameras are properly set up before transition
@@ -289,27 +282,6 @@ namespace KillerCam
                             currentSpectateTarget = SpectateTarget.Victim;
                             
                             KillerCam.Logger.LogInfo("Completed transition to victim camera");
-                        }
-                        else
-                        {
-                            SpectatorUI.HideText();
-
-                            // Transition back to player
-                            isSpectatingMurderer = false;
-                            isSpectatingVictim = false;
-                            currentSpectateTarget = SpectateTarget.None;
-                            
-                            // Enable player camera, disable others
-                            if (playerCamera != null) playerCamera.enabled = true;
-                            if (murdererCamera != null) murdererCamera.enabled = false;
-                            if (victimCamera != null) victimCamera.enabled = false;
-                            
-
-                            
-                            // Deactivate room tracking
-                            SpectatorRoomTracker.StopSpectating();
-                            
-                            KillerCam.Logger.LogInfo("Completed transition to player camera");
                         }
                     }
                 }
@@ -602,7 +574,7 @@ namespace KillerCam
                 }
                 
                 // Disable the SpectatorRoomTracker
-                SpectatorRoomTracker.StopSpectating();
+                // SpectatorRoomTracker.StopSpectating(); // Removed redundant call
                 
                 KillerCam.Logger.LogError("Error switching to murderer camera: " + ex.Message);
             }
@@ -616,7 +588,7 @@ namespace KillerCam
             // Get player camera if not already stored
             if (playerCamera == null)
             {
-                playerCamera = Camera.main;
+                playerCamera = FindActiveCamera(); // Use FindActiveCamera for consistency
                 if (playerCamera == null)
                 {
                     KillerCam.Logger.LogError("Could not find player camera!");
@@ -624,30 +596,26 @@ namespace KillerCam
                 }
             }
 
-            Camera sourceCam = null;
-            if (currentSpectateTarget == SpectateTarget.Murderer && murdererCamera != null) sourceCam = murdererCamera;
-            else if (currentSpectateTarget == SpectateTarget.Victim && victimCamera != null) sourceCam = victimCamera;
-
-            if (sourceCam != null && playerCamera != null)
+            // --- Immediate Switch Logic --- 
+            // Disable spectator cameras
+            if (murdererCamera != null) murdererCamera.enabled = false;
+            if (victimCamera != null) victimCamera.enabled = false;
+            
+            // Enable player camera
+            if (playerCamera != null) 
             {
-                TransitionCamera(sourceCam, playerCamera, SpectateTarget.None);
-            }
-            else if (playerCamera != null) // Fallback if no valid source (e.g., first switch)
-            {
-                 // Directly enable player camera if no transition source
-                if (murdererCamera != null) murdererCamera.enabled = false;
-                if (victimCamera != null) victimCamera.enabled = false;
                 playerCamera.enabled = true;
-                activeCamera = playerCamera; // Set player camera as active
-                 KillerCam.Logger.LogInfo("Enabled player camera directly (no transition source).");
+                activeCamera = playerCamera; // Set player camera as active immediately
+                KillerCam.Logger.LogInfo("Enabled player camera directly.");
             }
             else
             {
                  KillerCam.Logger.LogError("Failed to switch to player camera - Player camera is null.");
                  return; // Critical error if player camera is null
             }
-
-
+            // --- End Immediate Switch Logic ---
+            
+            // --- State Reset and Culling --- 
             // Reset spectating states
             isSpectatingMurderer = false;
             isSpectatingVictim = false;
@@ -659,11 +627,26 @@ namespace KillerCam
             SpectatorUI.HideText();
 
             // Restore player controls/UI if they were disabled
-            // RestorePlayerFunctionality(); // Commented out as it's not defined yet
+            // RestorePlayerFunctionality(); // Keep commented out
 
              // Reset camera rotation
             rotationX = 0f;
             rotationY = 0f;
+            
+            // Deactivate room tracking AFTER enabling player camera
+            SpectatorRoomTracker.StopSpectating();
+                            
+            // Explicitly update culling for the player's current room
+            if (Player.Instance != null && Player.Instance.currentRoom != null && GeometryCullingController.Instance != null)
+            {
+                GeometryCullingController.Instance.UpdateCullingForRoom(Player.Instance.currentRoom, true, false, null, true);
+                KillerCam.Logger.LogInfo($"Forced culling update for player room: {Player.Instance.currentRoom.name}");
+            }
+            else
+            {
+                KillerCam.Logger.LogWarning("Could not force player culling update (Player, Room, or CullingController missing).");
+            }
+            // --- End State Reset and Culling ---
         }
 
         private static void SwitchToTargetCamera(SpectateTarget targetType)

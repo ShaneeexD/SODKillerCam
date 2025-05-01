@@ -73,8 +73,8 @@ namespace KillerCam
             if (!isCreated) CreateSpectatorText();
             if (!isCreated || spectatorText == null) return;
 
+            spectatorTextObject.SetActive(true); // Ensure the object is active before setting text
             spectatorText.text = message;
-            spectatorTextObject.SetActive(!string.IsNullOrEmpty(message)); // Show only if there's text
         }
 
         public static void ShowText()
