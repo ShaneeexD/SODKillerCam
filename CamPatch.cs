@@ -1,4 +1,4 @@
-using HarmonyLib;
+﻿using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -300,12 +300,10 @@ namespace KillerCam
                             if (murdererCamera != null) murdererCamera.enabled = false;
                             if (victimCamera != null) victimCamera.enabled = false;
                             
-                            // Restore HUD elements
-                            RestoreHUDElements();
+
                             
                             // Deactivate room tracking
-                            MurdererRoomTracker.IsActive = false;
-                            MurdererRoomTracker.RestorePlayerRooms();
+                            SpectatorRoomTracker.StopSpectating();
                             
                             KillerCam.Logger.LogInfo("Completed transition to player camera");
                         }
@@ -324,13 +322,11 @@ namespace KillerCam
                     }
                 }
                 
-                // Continuously check and hide HUD elements while in spectate mode
-                UpdateHUDVisibility();
+
             }
             else if (wasSpectatingLastFrame && !isSpectatingMurderer)
             {
-                // If we just switched back to player view, restore HUD elements
-                RestoreHUDElements();
+
                 wasSpectatingLastFrame = false;
             }
             
@@ -340,83 +336,69 @@ namespace KillerCam
                 wasSpectatingLastFrame = true;
             }
             
-            // If we're spectating the murderer, update the camera position and handle culling
-            if (isSpectatingMurderer)
+            // If we're spectating the murderer or victim, update the camera position and handle culling
+            if (isSpectatingMurderer || isSpectatingVictim)
             {
-                UpdateMurdererCamera();
-                
-                // Handle culling for the murderer's location to ensure proper rendering
-                if (murderController != null && murderController.currentMurderer != null)
+                // Update the appropriate camera
+                if (isSpectatingMurderer)
                 {
-                    try
-                    {
-                        // Find the room the murderer is in
-                        Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
-                        NewRoom murdererRoom = murdererHuman?.currentRoom;
-                        
-                        // Always ensure the murderer's room is visible
-                        if (murdererRoom != null)
-                        {
-                            // Update the MurdererRoomTracker with current room information
-                            MurdererRoomTracker.UpdateMurdererRoom(murdererRoom);
-                            
-                            // Only do a full culling update when the room changes or on cooldown
-                            cullingUpdateCooldown -= Time.deltaTime;
-                            if (murdererRoom != lastMurdererRoom || cullingUpdateCooldown <= 0)
-                            {
-                                // Force a full culling update
-                                GeometryCullingController.Instance.UpdateCullingForRoom(murdererRoom, true, false, null, true);
-                                KillerCam.Logger.LogInfo("Full culling update for murderer's room: " + murdererRoom.name);
-                                
-                                // Remember this room and reset cooldown
-                                lastMurdererRoom = murdererRoom;
-                                cullingUpdateCooldown = 3.0f; // Only update every 3 seconds at most
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        KillerCam.Logger.LogError("Error updating culling for murderer's room: " + ex.Message);
-                    }
+                    UpdateMurdererCamera();
                 }
-            }
-            // If we're spectating the victim, update the camera position and handle culling
-            else if (isSpectatingVictim)
-            {
-                UpdateVictimCamera();
+                else // isSpectatingVictim
+                {
+                    UpdateVictimCamera();
+                }
                 
-                // Handle culling for the victim's location to ensure proper rendering
-                if (murderController != null && murderController.currentVictim != null)
+                // Get the current target human and room based on which camera we're using
+                Human targetHuman = null;
+                NewRoom targetRoom = null;
+                string targetType = "";
+                
+                if (isSpectatingMurderer && murderController != null && murderController.currentMurderer != null)
+                {
+                    targetHuman = murderController.currentMurderer.GetComponent<Human>();
+                    targetType = "murderer";
+                }
+                else if (isSpectatingVictim && murderController != null && murderController.currentVictim != null)
+                {
+                    targetHuman = murderController.currentVictim.GetComponent<Human>();
+                    targetType = "victim";
+                }
+                
+                // Get the room from the target human
+                if (targetHuman != null)
+                {
+                    targetRoom = targetHuman.currentRoom;
+                }
+                
+                // Handle culling for the target's location to ensure proper rendering
+                if (targetRoom != null)
                 {
                     try
                     {
-                        // Find the room the victim is in
-                        Human victimHuman = murderController.currentVictim.GetComponent<Human>();
-                        NewRoom victimRoom = victimHuman?.currentRoom;
+                        // Only update the room if it's different from the last one or if the cooldown has expired
+                        cullingUpdateCooldown -= Time.deltaTime;
+                        bool needsUpdate = targetRoom != lastMurdererRoom || cullingUpdateCooldown <= 0;
                         
-                        // Always ensure the victim's room is visible
-                        if (victimRoom != null)
+                        // Always ensure the target room is tracked
+                        if (needsUpdate)
                         {
-                            // Update the MurdererRoomTracker with current room information (it works for victim too)
-                            MurdererRoomTracker.UpdateMurdererRoom(victimRoom);
+                            // Update the SpectatorRoomTracker with current room information
+                            SpectatorRoomTracker.UpdateTargetRoom(targetRoom);
                             
-                            // Only do a full culling update when the room changes or on cooldown
-                            cullingUpdateCooldown -= Time.deltaTime;
-                            if (victimRoom != lastMurdererRoom || cullingUpdateCooldown <= 0)
-                            {
-                                // Force a full culling update
-                                GeometryCullingController.Instance.UpdateCullingForRoom(victimRoom, true, false, null, true);
-                                KillerCam.Logger.LogInfo("Full culling update for victim's room: " + victimRoom.name);
-                                
-                                // Remember this room and reset cooldown
-                                lastMurdererRoom = victimRoom; // Reuse the same variable for tracking
-                                cullingUpdateCooldown = 3.0f; // Only update every 3 seconds at most
-                            }
+                            // Force a full culling update
+                            // No longer needed here, UpdateTargetRoom handles it
+                            // GeometryCullingController.Instance.UpdateCullingForRoom(targetRoom, true, false, null, true);
+                            KillerCam.Logger.LogInfo($"Full culling update for {targetType}'s room: {targetRoom.name}");
+                            
+                            // Remember this room and reset cooldown
+                            lastMurdererRoom = targetRoom;
+                            cullingUpdateCooldown = 3.0f; // Only update every 3 seconds at most
                         }
                     }
                     catch (Exception ex)
                     {
-                        KillerCam.Logger.LogError("Error updating culling for victim's room: " + ex.Message);
+                        KillerCam.Logger.LogError($"Error updating culling for {targetType}'s room: {ex.Message}");
                     }
                 }
             }
@@ -480,9 +462,6 @@ namespace KillerCam
             }
         }
         
-        // List to track hidden HUD elements
-        private static List<GameObject> hiddenHUDElements = new List<GameObject>();
-        
         private static void SwitchToMurdererCamera()
         {
             try
@@ -515,7 +494,7 @@ namespace KillerCam
                     murdererCamera.enabled = true;
                     UpdateMurdererCamera(); // Initial position update
                     
-                    // Enable the MurdererRoomTracker to handle culling
+                    // Enable the SpectatorRoomTracker to handle culling
                     if (murderController != null && murderController.currentMurderer != null)
                     {
                         Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
@@ -523,18 +502,14 @@ namespace KillerCam
                         
                         if (murdererRoom != null)
                         {
-                            // First save and clear player rooms for optimization
-                            MurdererRoomTracker.SaveAndClearPlayerRooms();
+                            // First save and clear player rooms for optimization - Removed, handled by StartSpectating
+                            // SpectatorRoomTracker.SaveAndClearPlayerRooms();
                             
                             // Then set up murderer room tracking
-                            MurdererRoomTracker.UpdateMurdererRoom(murdererRoom);
-                            MurdererRoomTracker.IsActive = true;
-                            KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + murdererRoom.name);
+                            SpectatorRoomTracker.StartSpectating(murdererRoom);
+                            KillerCam.Logger.LogInfo("Activated SpectatorRoomTracker for room: " + murdererRoom.name);
                         }
                     }
-                    
-                    // Hide HUD elements
-                    HideHUDElements();
                     
                     KillerCam.Logger.LogInfo("Switched to murderer camera. Press " + toggleKey.ToString() + " to switch back.");
                 }
@@ -554,179 +529,13 @@ namespace KillerCam
                     murdererCamera.enabled = false;
                 }
                 
-                // Disable the MurdererRoomTracker
-                MurdererRoomTracker.IsActive = false;
+                // Disable the SpectatorRoomTracker
+                SpectatorRoomTracker.StopSpectating();
                 
                 KillerCam.Logger.LogError("Error switching to murderer camera: " + ex.Message);
             }
         }
         
-        // Method to continuously update HUD visibility during runtime
-        private static void UpdateHUDVisibility()
-        {
-            try
-            {
-                if (InterfaceControls.Instance == null)
-                    return;
-                
-                // Hide reticle/crosshair
-                if (InterfaceControls.Instance.reticleContainer != null && 
-                    InterfaceControls.Instance.reticleContainer.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.reticleContainer.gameObject.SetActive(false);
-                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.reticleContainer.gameObject))
-                        hiddenHUDElements.Add(InterfaceControls.Instance.reticleContainer.gameObject);
-                }
-                
-                // Hide interaction elements
-                if (InterfaceControls.Instance.interactionRect != null && 
-                    InterfaceControls.Instance.interactionRect.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.interactionRect.gameObject.SetActive(false);
-                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.interactionRect.gameObject))
-                        hiddenHUDElements.Add(InterfaceControls.Instance.interactionRect.gameObject);
-                }
-                
-                // Hide interaction text
-                if (InterfaceControls.Instance.interactionTextContainer != null && 
-                    InterfaceControls.Instance.interactionTextContainer.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.interactionTextContainer.gameObject.SetActive(false);
-                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.interactionTextContainer.gameObject))
-                        hiddenHUDElements.Add(InterfaceControls.Instance.interactionTextContainer.gameObject);
-                }
-                
-                // Hide action interaction display
-                if (InterfaceControls.Instance.actionInteractionDisplay != null && 
-                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.SetActive(false);
-                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.actionInteractionDisplay.gameObject))
-                        hiddenHUDElements.Add(InterfaceControls.Instance.actionInteractionDisplay.gameObject);
-                }
-                
-                // Hide light orb
-                if (InterfaceControls.Instance.lightOrbRect != null && 
-                    InterfaceControls.Instance.lightOrbRect.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.lightOrbRect.gameObject.SetActive(false);
-                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.lightOrbRect.gameObject))
-                        hiddenHUDElements.Add(InterfaceControls.Instance.lightOrbRect.gameObject);
-                }
-                
-                // Hide notifications - direct approach using GameObject.Find
-                try {
-                    // We'll use GameObject.Find to locate notification objects
-                    // Look for common parent objects that might contain notifications
-                    var notificationObjects = new string[] {
-                        "NotificationIcon", "Notification", "NotificationParent", "NotificationsPanel", 
-                        "HUDNotificationsIcon", "NotificationController",
-                        // Add more specific names based on the game's UI hierarchy
-                        "NotificationPanel", "NotifyIcon", "NotifyPanel", "HUDNotifications"
-                    };
-                    
-                    foreach (var objName in notificationObjects)
-                    {
-                        var obj = GameObject.Find(objName);
-                        if (obj != null && obj.activeSelf)
-                        {
-                            obj.SetActive(false);
-                            if (!hiddenHUDElements.Contains(obj))
-                                hiddenHUDElements.Add(obj);
-                            
-                            // If we found a notification object, also try to find its HUD icon
-                            var hudIcon = GameObject.Find(objName + "Icon");
-                            if (hudIcon != null && hudIcon.activeSelf)
-                            {
-                                hudIcon.SetActive(false);
-                                if (!hiddenHUDElements.Contains(hudIcon))
-                                    hiddenHUDElements.Add(hudIcon);
-                            }
-                        }
-                    }
-                    
-                    // Try to find notification objects in the HUD canvas
-                    if (InterfaceControls.Instance.hudCanvas != null)
-                    {
-                        // We can't iterate through children in IL2CPP, but we can check if the canvas itself
-                        // has notifications and hide the entire canvas as a last resort
-                        // This is commented out because it would hide ALL HUD elements
-                        // InterfaceControls.Instance.hudCanvas.gameObject.SetActive(false);
-                        // hiddenHUDElements.Add(InterfaceControls.Instance.hudCanvas.gameObject);
-                    }
-                } catch (Exception ex) {
-                    // Just log and continue
-                    KillerCam.Logger.LogWarning($"Error hiding notifications: {ex.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                // Just log and continue
-                KillerCam.Logger.LogWarning($"Error updating HUD visibility: {ex.Message}");
-            }
-        }
-        
-        // Method to hide HUD elements
-        private static void HideHUDElements()
-        {
-            try
-            {
-                // Clear the list of hidden elements
-                hiddenHUDElements.Clear();
-                
-                if (InterfaceControls.Instance == null)
-                {
-                    KillerCam.Logger.LogWarning("InterfaceControls.Instance is null, cannot hide HUD elements");
-                    return;
-                }
-                
-                // Hide reticle/crosshair
-                if (InterfaceControls.Instance.reticleContainer != null && 
-                    InterfaceControls.Instance.reticleContainer.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.reticleContainer.gameObject.SetActive(false);
-                    hiddenHUDElements.Add(InterfaceControls.Instance.reticleContainer.gameObject);
-                }
-                
-                // Hide interaction elements
-                if (InterfaceControls.Instance.interactionRect != null && 
-                    InterfaceControls.Instance.interactionRect.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.interactionRect.gameObject.SetActive(false);
-                    hiddenHUDElements.Add(InterfaceControls.Instance.interactionRect.gameObject);
-                }
-                
-                // Hide interaction text
-                if (InterfaceControls.Instance.interactionTextContainer != null && 
-                    InterfaceControls.Instance.interactionTextContainer.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.interactionTextContainer.gameObject.SetActive(false);
-                    hiddenHUDElements.Add(InterfaceControls.Instance.interactionTextContainer.gameObject);
-                }
-                
-                // Hide action interaction display
-                if (InterfaceControls.Instance.actionInteractionDisplay != null && 
-                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.SetActive(false);
-                    hiddenHUDElements.Add(InterfaceControls.Instance.actionInteractionDisplay.gameObject);
-                }
-                
-                // Hide light orb
-                if (InterfaceControls.Instance.lightOrbRect != null && 
-                    InterfaceControls.Instance.lightOrbRect.gameObject.activeSelf)
-                {
-                    InterfaceControls.Instance.lightOrbRect.gameObject.SetActive(false);
-                    hiddenHUDElements.Add(InterfaceControls.Instance.lightOrbRect.gameObject);
-                }
-                
-                KillerCam.Logger.LogInfo("HUD elements hidden for murderer spectate mode");
-            }
-            catch (Exception ex)
-            {
-                KillerCam.Logger.LogError($"Error hiding HUD elements: {ex.Message}");
-            }
-        }
         
         private static void SwitchToPlayerCamera()
         {
@@ -786,9 +595,10 @@ namespace KillerCam
                 // Restore HUD elements
                 RestoreHUDElements();
                 
-                // Disable the MurdererRoomTracker
-                MurdererRoomTracker.IsActive = false;
-                MurdererRoomTracker.RestorePlayerRooms();
+                // Disable the SpectatorRoomTracker
+                SpectatorRoomTracker.StopSpectating();
+                // Removed, handled by StopSpectating
+                // SpectatorRoomTracker.RestorePlayerRooms();
                 
                 // Reset flags
                 isSpectatingMurderer = false;
@@ -848,19 +658,7 @@ namespace KillerCam
         private static void RestoreHUDElements()
         {
             try
-            {
-                // Restore all hidden HUD elements
-                foreach (var element in hiddenHUDElements)
-                {
-                    if (element != null)
-                    {
-                        element.SetActive(true);
-                    }
-                }
-                
-                // Clear the list
-                hiddenHUDElements.Clear();
-                
+            {                        
                 // Make sure the HUD canvas is enabled
                 if (InterfaceControls.Instance != null && InterfaceControls.Instance.hudCanvas != null)
                 {
@@ -1105,7 +903,7 @@ namespace KillerCam
                 Human murdererHuman = murderController.currentMurderer.GetComponent<Human>();
                 if (murdererHuman != null && murdererHuman.currentRoom != null)
                 {
-                    MurdererRoomTracker.UpdateMurdererRoom(murdererHuman.currentRoom);
+                    SpectatorRoomTracker.UpdateTargetRoom(murdererHuman.currentRoom);
                 }
             }
             catch (Exception ex)
@@ -1208,7 +1006,7 @@ namespace KillerCam
                 Human victimHuman = murderController.currentVictim.GetComponent<Human>();
                 if (victimHuman != null && victimHuman.currentRoom != null)
                 {
-                    MurdererRoomTracker.UpdateMurdererRoom(victimHuman.currentRoom);
+                    SpectatorRoomTracker.UpdateTargetRoom(victimHuman.currentRoom);
                 }
             }
             catch (Exception ex)
@@ -1321,32 +1119,16 @@ namespace KillerCam
                     // Start a smooth transition from the source camera to target camera
                     TransitionCamera(sourceCamera, targetCamera, target);
                     
-                    // Hide HUD elements
-                    HideHUDElements();
-                    
-                    // Enable the MurdererRoomTracker to handle culling
+                    // Enable the SpectatorRoomTracker to handle culling
                     if (targetRoom != null)
                     {
-                        // First save and clear player rooms for optimization
-                        MurdererRoomTracker.SaveAndClearPlayerRooms();
-                        
-                        // Then set up room tracking
-                        MurdererRoomTracker.UpdateMurdererRoom(targetRoom);
-                        MurdererRoomTracker.IsActive = true;
+                        // Then set up room tracking for the new target
+                        SpectatorRoomTracker.StartSpectating(targetRoom);
                         
                         // Force an immediate culling update for the target room
-                        try {
-                            GeometryCullingController.Instance.UpdateCullingForRoom(targetRoom, true, false, null, true);
-                            
-                            // Update the lastMurdererRoom to avoid unnecessary updates
-                            lastMurdererRoom = targetRoom;
-                            cullingUpdateCooldown = 3.0f;
-                            
-                            KillerCam.Logger.LogInfo("Activated room tracking and forced culling update for room: " + targetRoom.name);
-                        }
-                        catch (Exception ex) {
-                            KillerCam.Logger.LogError("Error forcing culling update: " + ex.Message);
-                        }
+                        // No longer needed here, StartSpectating handles it
+                        // GeometryCullingController.Instance.UpdateCullingForRoom(targetRoom, true, false, null, true);
+                        KillerCam.Logger.LogInfo("Activated room tracking and forced culling update for room: " + targetRoom.name);
                     }
                 }
             }
