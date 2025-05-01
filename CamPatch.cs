@@ -12,15 +12,32 @@ namespace KillerCam
     [HarmonyPatch(typeof(Player), "Update")]
     public class CamPatch
     {
-        // Static variables to maintain state
+        // Static variables for camera control
         private static bool isSpectatingMurderer = false;
-        private static GameObject murdererCameraObject = null;
+        private static bool isSpectatingVictim = false;
         private static Camera murdererCamera = null;
-        private static Camera originalCamera = null;
+        private static GameObject murdererCameraObject = null;
+        private static Camera victimCamera = null;
+        private static GameObject victimCameraObject = null;
+        private static Camera playerCamera = null;
+        // Flag to indicate if we've already logged camera info
+        private static bool hasDumpedCameraInfo = false;
+        
+        // Track which camera we're currently using
+        private static SpectateTarget currentSpectateTarget = SpectateTarget.None;
+        
+        // Enum to track which camera we're using
+        private enum SpectateTarget
+        {
+            None,
+            Murderer,
+            Victim
+        }
         public static MurdererInfoProvider murdererInfoProvider;
         public static MurderController murderController;
         private static UnityEngine.KeyCode toggleKey = UnityEngine.KeyCode.F8; // You can change this to any key you prefer
-        private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F8; // IL2CPP equivalent
+        private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKeyMurderer = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F8; // IL2CPP equivalent
+        private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKeyVictim = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F9; // IL2CPP equivalent
         
         // Track the murderer's last room to avoid unnecessary culling updates
         private static NewRoom lastMurdererRoom = null;
@@ -38,13 +55,23 @@ namespace KillerCam
         // Track key state to implement our own key press detection
         private static bool wasKeyPressed = false;
         
-        // Flag to indicate if we've already logged camera info
-        private static bool hasDumpedCameraInfo = false;
+        // Camera rotation variables
         
         // Camera rotation variables
         private static float rotationX = 0f;
         private static float rotationY = 0f;
         private static float rotationSpeed = 5f;
+        
+        // Camera transition variables
+        private static bool isTransitioning = false;
+        private static Vector3 transitionStartPosition;
+        private static Quaternion transitionStartRotation;
+        private static Vector3 transitionTargetPosition;
+        private static Quaternion transitionTargetRotation;
+        private static float transitionProgress = 0f;
+        private static float transitionDuration = 1.5f; // Seconds for a complete transition
+        private static SpectateTarget transitionTargetType = SpectateTarget.None;
+        private static Camera activeCamera = null; // The currently active camera during transitions
         
         // Track key states for arrow keys
         private static bool wasUpPressed = false;
@@ -63,10 +90,12 @@ namespace KillerCam
             }
             
             // Check for F8 key press
-            bool isKeyDown = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKey);
+            bool isKeyDownMurderer = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyMurderer);
+            bool isKeyDownVictim = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyVictim);
+
             
-            // Detect key press (down this frame, but not last frame)
-            if (isKeyDown && !wasKeyPressed)
+            // Handle murderer camera toggle (F8)
+            if (isKeyDownMurderer && !wasKeyPressed)
             {
                 // Get the current murder controller instance
                 murderController = MurderController.Instance;
@@ -79,13 +108,32 @@ namespace KillerCam
                     KillerCam.Logger.LogInfo("Murderer position: " + pos.ToString());
                 }
                 
-                // Toggle the camera
-                ToggleMurdererCamera();
+                // Toggle the murderer camera
+                ToggleSpectateCamera(SpectateTarget.Murderer);
             }
-            wasKeyPressed = isKeyDown;
             
-            // Handle arrow key rotation when in murderer camera mode
-            if (isSpectatingMurderer && murdererCamera != null)
+            // Handle victim camera toggle (F9)
+            if (isKeyDownVictim && !wasKeyPressed)
+            {
+                // Get the current murder controller instance
+                murderController = MurderController.Instance;
+                KillerCam.Logger.LogInfo("F9 Pressed, MurderController: " + (murderController != null ? "Not null" : "Null"));
+                
+                // Log the victim position if available
+                if (murderController != null && murderController.currentVictim != null)
+                {
+                    Vector3 pos = murderController.currentVictim.transform.position;
+                    KillerCam.Logger.LogInfo("Victim position: " + pos.ToString());
+                }
+                
+                // Toggle the victim camera
+                ToggleSpectateCamera(SpectateTarget.Victim);
+            }
+            
+            wasKeyPressed = isKeyDownMurderer || isKeyDownVictim;
+            
+            // Handle arrow key rotation when in any spectator camera mode
+            if ((isSpectatingMurderer || isSpectatingVictim) && (murdererCamera != null || victimCamera != null))
             {
                 // Check arrow key presses using IL2CPP compatible method
                 bool upPressed = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppUpKey);
@@ -118,8 +166,93 @@ namespace KillerCam
                 // Clamp vertical rotation to prevent camera flipping
                 cameraRotationX = Mathf.Clamp(cameraRotationX, -80f, 80f);
                 
-                // The rotation is now applied in UpdateMurdererCamera
-                // This combines the murderer's base rotation with our manual offset
+                // Handle camera transitions or normal updates
+                if (isTransitioning)
+                {
+                    // Update the transition progress
+                    transitionProgress += Time.deltaTime / transitionDuration;
+                    
+                    // Clamp progress to 0-1 range
+                    transitionProgress = Mathf.Clamp01(transitionProgress);
+                    
+                    // Use smooth step for easing
+                    float t = Mathf.SmoothStep(0f, 1f, transitionProgress);
+                    
+                    // Interpolate position and rotation
+                    Vector3 newPosition = Vector3.Lerp(transitionStartPosition, transitionTargetPosition, t);
+                    Quaternion newRotation = Quaternion.Slerp(transitionStartRotation, transitionTargetRotation, t);
+                    
+                    // Apply to the active camera
+                    if (activeCamera != null)
+                    {
+                        activeCamera.transform.position = newPosition;
+                        activeCamera.transform.rotation = newRotation;
+                    }
+                    
+                    // Check if transition is complete
+                    if (transitionProgress >= 1.0f)
+                    {
+                        // Transition complete
+                        isTransitioning = false;
+                        transitionProgress = 0f;
+                        
+                        // Update the appropriate camera based on transition target
+                        if (transitionTargetType == SpectateTarget.Murderer)
+                        {
+                            isSpectatingMurderer = true;
+                            isSpectatingVictim = false;
+                            currentSpectateTarget = SpectateTarget.Murderer;
+                        }
+                        else if (transitionTargetType == SpectateTarget.Victim)
+                        {
+                            isSpectatingVictim = true;
+                            isSpectatingMurderer = false;
+                            currentSpectateTarget = SpectateTarget.Victim;
+                        }
+                        else
+                        {
+                            // Transition back to player
+                            isSpectatingMurderer = false;
+                            isSpectatingVictim = false;
+                            currentSpectateTarget = SpectateTarget.None;
+                            
+                            // Enable player camera
+                            if (playerCamera != null)
+                            {
+                                playerCamera.enabled = true;
+                            }
+                            
+                            // Disable other cameras
+                            if (murdererCamera != null)
+                            {
+                                murdererCamera.enabled = false;
+                            }
+                            if (victimCamera != null)
+                            {
+                                victimCamera.enabled = false;
+                            }
+                            
+                            // Restore HUD elements
+                            RestoreHUDElements();
+                            
+                            // Deactivate room tracking
+                            MurdererRoomTracker.IsActive = false;
+                            MurdererRoomTracker.RestorePlayerRooms();
+                        }
+                    }
+                }
+                else
+                {
+                    // Normal camera updates (no transition)
+                    if (isSpectatingMurderer)
+                    {
+                        UpdateMurdererCamera();
+                    }
+                    else if (isSpectatingVictim)
+                    {
+                        UpdateVictimCamera();
+                    }
+                }
                 
                 // Continuously check and hide HUD elements while in spectate mode
                 UpdateHUDVisibility();
@@ -179,20 +312,47 @@ namespace KillerCam
             }
         }
         
-        private static void ToggleMurdererCamera()
+        private static void ToggleSpectateCamera(SpectateTarget target)
         {
-            if (isSpectatingMurderer)
+            // If we're already spectating this target, switch back to player camera
+            if ((target == SpectateTarget.Murderer && isSpectatingMurderer) ||
+                (target == SpectateTarget.Victim && isSpectatingVictim))
             {
                 // Switch back to player camera
                 SwitchToPlayerCamera();
+                
+                // Reset flags
+                isSpectatingMurderer = false;
+                isSpectatingVictim = false;
+                currentSpectateTarget = SpectateTarget.None;
             }
             else
             {
-                // Switch to murderer camera
-                SwitchToMurdererCamera();
+                // If we're currently spectating something else, switch to player first
+                if (isSpectatingMurderer || isSpectatingVictim)
+                {
+                    SwitchToPlayerCamera();
+                    isSpectatingMurderer = false;
+                    isSpectatingVictim = false;
+                }
+                
+                // Now switch to the requested target
+                if (target == SpectateTarget.Murderer)
+                {
+                    SwitchToTargetCamera(target);
+                    isSpectatingMurderer = true;
+                    isSpectatingVictim = false;
+                }
+                else if (target == SpectateTarget.Victim)
+                {
+                    SwitchToTargetCamera(target);
+                    isSpectatingVictim = true;
+                    isSpectatingMurderer = false;
+                }
+                
+                // Update current target
+                currentSpectateTarget = target;
             }
-            
-            isSpectatingMurderer = !isSpectatingMurderer;
         }
         
         // List to track hidden HUD elements
@@ -203,12 +363,12 @@ namespace KillerCam
             try
             {
                 // Find the active camera in the scene
-                if (originalCamera == null)
+                if (playerCamera == null)
                 {
                     // Try to find the active camera
-                    originalCamera = FindActiveCamera();
-                    KillerCam.Logger.LogInfo("Found active camera: " + (originalCamera != null) + 
-                        (originalCamera != null ? ", Name: " + originalCamera.name : ""));
+                    playerCamera = FindActiveCamera();
+                    KillerCam.Logger.LogInfo("Found active camera: " + (playerCamera != null) + 
+                        (playerCamera != null ? ", Name: " + playerCamera.name : ""));
                 }
                 
                 // Create murderer camera if it doesn't exist
@@ -218,11 +378,11 @@ namespace KillerCam
                     KillerCam.Logger.LogInfo("Created murderer camera: " + (murdererCamera != null));
                 }
                 
-                // Disable original camera and enable murderer camera
-                if (originalCamera != null)
+                // Disable player camera and enable murderer camera
+                if (playerCamera != null)
                 {
-                    originalCamera.enabled = false;
-                    KillerCam.Logger.LogInfo("Disabled original camera");
+                    playerCamera.enabled = false;
+                    KillerCam.Logger.LogInfo("Disabled player camera");
                 }
                 
                 if (murdererCamera != null)
@@ -256,12 +416,12 @@ namespace KillerCam
             }
             catch (Exception ex)
             {
-                // If anything fails, try to revert to original camera
+                // If anything fails, try to revert to player camera
                // isSpectatingMurderer = false;
                 
-                if (originalCamera != null)
+                if (playerCamera != null)
                 {
-                    originalCamera.enabled = true;
+                    playerCamera.enabled = true;
                 }
                 
                 if (murdererCamera != null)
@@ -327,6 +487,51 @@ namespace KillerCam
                     InterfaceControls.Instance.lightOrbRect.gameObject.SetActive(false);
                     if (!hiddenHUDElements.Contains(InterfaceControls.Instance.lightOrbRect.gameObject))
                         hiddenHUDElements.Add(InterfaceControls.Instance.lightOrbRect.gameObject);
+                }
+                
+                // Hide notifications - direct approach using GameObject.Find
+                try {
+                    // We'll use GameObject.Find to locate notification objects
+                    // Look for common parent objects that might contain notifications
+                    var notificationObjects = new string[] {
+                        "NotificationIcon", "Notification", "NotificationParent", "NotificationsPanel", 
+                        "HUDNotificationsIcon", "NotificationController",
+                        // Add more specific names based on the game's UI hierarchy
+                        "NotificationPanel", "NotifyIcon", "NotifyPanel", "HUDNotifications"
+                    };
+                    
+                    foreach (var objName in notificationObjects)
+                    {
+                        var obj = GameObject.Find(objName);
+                        if (obj != null && obj.activeSelf)
+                        {
+                            obj.SetActive(false);
+                            if (!hiddenHUDElements.Contains(obj))
+                                hiddenHUDElements.Add(obj);
+                            
+                            // If we found a notification object, also try to find its HUD icon
+                            var hudIcon = GameObject.Find(objName + "Icon");
+                            if (hudIcon != null && hudIcon.activeSelf)
+                            {
+                                hudIcon.SetActive(false);
+                                if (!hiddenHUDElements.Contains(hudIcon))
+                                    hiddenHUDElements.Add(hudIcon);
+                            }
+                        }
+                    }
+                    
+                    // Try to find notification objects in the HUD canvas
+                    if (InterfaceControls.Instance.hudCanvas != null)
+                    {
+                        // We can't iterate through children in IL2CPP, but we can check if the canvas itself
+                        // has notifications and hide the entire canvas as a last resort
+                        // This is commented out because it would hide ALL HUD elements
+                        // InterfaceControls.Instance.hudCanvas.gameObject.SetActive(false);
+                        // hiddenHUDElements.Add(InterfaceControls.Instance.hudCanvas.gameObject);
+                    }
+                } catch (Exception ex) {
+                    // Just log and continue
+                    KillerCam.Logger.LogWarning($"Error hiding notifications: {ex.Message}");
                 }
             }
             catch (Exception ex)
@@ -420,10 +625,10 @@ namespace KillerCam
                     KillerCam.Logger.LogInfo("Disabled murderer camera");
                 }
                 
-                if (originalCamera != null)
+                if (playerCamera != null)
                 {
-                    originalCamera.enabled = true;
-                    KillerCam.Logger.LogInfo("Enabled original camera");
+                    playerCamera.enabled = true;
+                    KillerCam.Logger.LogInfo("Enabled player camera");
                 }
                 else if (CameraController.Instance != null)
                 {
@@ -489,17 +694,25 @@ namespace KillerCam
         {
             try
             {
-                // Restore all hidden elements
+                // Restore all hidden HUD elements
                 foreach (var element in hiddenHUDElements)
                 {
                     if (element != null)
+                    {
                         element.SetActive(true);
+                    }
                 }
                 
                 // Clear the list
                 hiddenHUDElements.Clear();
                 
-                KillerCam.Logger.LogInfo("HUD elements restored");
+                // Make sure the HUD canvas is enabled
+                if (InterfaceControls.Instance != null && InterfaceControls.Instance.hudCanvas != null)
+                {
+                    InterfaceControls.Instance.hudCanvas.gameObject.SetActive(true);
+                }
+                
+                KillerCam.Logger.LogInfo("HUD canvas and elements restored");
             }
             catch (Exception ex)
             {
@@ -924,6 +1137,216 @@ namespace KillerCam
             catch (Exception ex)
             {
                 KillerCam.Logger.LogError("Error updating murderer camera: " + ex.Message);
+            }
+        }
+        
+        // Method to update the victim camera position and rotation
+        private static void UpdateVictimCamera()
+        {
+            try
+            {
+                if (victimCamera == null || !victimCamera.enabled || murderController == null || murderController.currentVictim == null)
+                {
+                    return;
+                }
+                
+                // Get the victim's position and rotation
+                Transform victimTransform = murderController.currentVictim.transform;
+                if (victimTransform == null)
+                {
+                    return;
+                }
+                
+                // Calculate the desired position (behind and slightly above the victim)
+                Vector3 targetPosition = victimTransform.position + new Vector3(0, 1.7f, 0);
+                
+                // Apply rotation offset from arrow keys
+                Quaternion targetRotation = victimTransform.rotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
+                
+                // Get the direction the camera should be looking
+                Vector3 cameraDirection = targetRotation * Vector3.forward * -1f;
+                
+                // Default distance from the victim
+                float defaultCameraDistance = 1.5f;
+                float currentDistance = defaultCameraDistance;
+                float minCameraDistance = 0.5f;
+                
+                // Check for collisions to avoid clipping through walls
+                RaycastHit hit;
+                bool hitDetected = false;
+                float closestHitDistance = float.MaxValue;
+                
+                // Cast rays in multiple directions to avoid clipping through walls
+                Vector3[] offsets = new Vector3[5]
+                {
+                    Vector3.zero,
+                    new Vector3(0.2f, 0, 0),
+                    new Vector3(-0.2f, 0, 0),
+                    new Vector3(0, 0.2f, 0),
+                    new Vector3(0, -0.2f, 0)
+                };
+                
+                foreach (Vector3 offset in offsets)
+                {
+                    if (Physics.Raycast(targetPosition + offset, cameraDirection, out hit, defaultCameraDistance))
+                    {
+                        hitDetected = true;
+                        if (hit.distance < closestHitDistance)
+                        {
+                            closestHitDistance = hit.distance;
+                        }
+                    }
+                }
+                
+                if (hitDetected)
+                {
+                    // If we hit something, adjust the distance to be just before the hit point
+                    currentDistance = Mathf.Max(closestHitDistance * 0.9f, minCameraDistance);
+                }
+                
+                // Calculate the final camera position with collision avoidance
+                Vector3 finalPosition = targetPosition + (cameraDirection * currentDistance);
+                
+                // Smoothly move the camera to the new position
+                Vector3 currentVelocity = Vector3.zero;
+                float smoothDampTime = 0.1f;
+                
+                victimCamera.transform.position = Vector3.SmoothDamp(
+                    victimCamera.transform.position,
+                    finalPosition,
+                    ref currentVelocity,
+                    smoothDampTime
+                );
+                
+                // Update the camera rotation to look at the victim (plus our offset)
+                victimCamera.transform.rotation = targetRotation;
+                
+                // Update culling for the victim's room if needed
+                Human victimHuman = murderController.currentVictim.GetComponent<Human>();
+                if (victimHuman != null && victimHuman.currentRoom != null)
+                {
+                    MurdererRoomTracker.UpdateMurdererRoom(victimHuman.currentRoom);
+                }
+            }
+            catch (Exception ex)
+            {
+                KillerCam.Logger.LogError("Error updating victim camera: " + ex.Message);
+            }
+        }
+        
+        // New method to switch to either murderer or victim camera
+        private static void SwitchToTargetCamera(SpectateTarget target)
+        {
+            try
+            {
+                // Find the active camera in the scene
+                if (playerCamera == null)
+                {
+                    // Try to find the active camera
+                    playerCamera = FindActiveCamera();
+                    KillerCam.Logger.LogInfo("Found active camera: " + (playerCamera != null) + 
+                        (playerCamera != null ? ", Name: " + playerCamera.name : ""));
+                }
+                
+                // Create target camera if it doesn't exist
+                Camera targetCamera = null;
+                Human targetHuman = null;
+                NewRoom targetRoom = null;
+                
+                if (target == SpectateTarget.Murderer)
+                {
+                    // Create murderer camera if it doesn't exist
+                    if (murdererCamera == null)
+                    {
+                        CreateMurdererCamera();
+                        KillerCam.Logger.LogInfo("Created murderer camera: " + (murdererCamera != null));
+                    }
+                    targetCamera = murdererCamera;
+                    
+                    // Get murderer human and room
+                    if (murderController != null && murderController.currentMurderer != null)
+                    {
+                        targetHuman = murderController.currentMurderer.GetComponent<Human>();
+                        targetRoom = targetHuman?.currentRoom;
+                    }
+                }
+                else if (target == SpectateTarget.Victim)
+                {
+                    // Create victim camera if it doesn't exist
+                    if (victimCamera == null)
+                    {
+                        // Create a new camera for the victim view
+                        GameObject victimCameraObj = new GameObject("VictimCamera");
+                        victimCamera = victimCameraObj.AddComponent<Camera>();
+                        
+                        // Copy settings from player camera
+                        if (playerCamera != null)
+                        {
+                            victimCamera.CopyFrom(playerCamera);
+                            victimCamera.depth = playerCamera.depth; // Ensure same rendering order
+                        }
+                        
+                        KillerCam.Logger.LogInfo("Created victim camera");
+                    }
+                    targetCamera = victimCamera;
+                    
+                    // Get victim human and room
+                    if (murderController != null && murderController.currentVictim != null)
+                    {
+                        targetHuman = murderController.currentVictim.GetComponent<Human>();
+                        targetRoom = targetHuman?.currentRoom;
+                    }
+                }
+                
+                // Disable player camera and enable target camera
+                if (playerCamera != null)
+                {
+                    playerCamera.enabled = false;
+                    KillerCam.Logger.LogInfo("Disabled player camera");
+                }
+                
+                // Disable other spectator cameras
+                if (target == SpectateTarget.Murderer && victimCamera != null)
+                    victimCamera.enabled = false;
+                else if (target == SpectateTarget.Victim && murdererCamera != null)
+                    murdererCamera.enabled = false;
+                
+                if (targetCamera != null)
+                {
+                    targetCamera.enabled = true;
+                    
+                    // Update the camera position immediately
+                    if (targetHuman != null && targetHuman.transform != null)
+                    {
+                        Vector3 targetPosition = targetHuman.transform.position;
+                        Quaternion targetRotation = targetHuman.transform.rotation;
+                        
+                        // Position the camera behind and slightly above the target
+                        targetCamera.transform.position = targetPosition + new Vector3(0, 1.7f, 0) - (targetRotation * Vector3.forward * 1.5f);
+                        targetCamera.transform.rotation = targetRotation;
+                    }
+                    
+                    // Enable the MurdererRoomTracker to handle culling
+                    if (targetRoom != null)
+                    {
+                        // First save and clear player rooms for optimization
+                        MurdererRoomTracker.SaveAndClearPlayerRooms();
+                        
+                        // Then set up room tracking
+                        MurdererRoomTracker.UpdateMurdererRoom(targetRoom);
+                        MurdererRoomTracker.IsActive = true;
+                        KillerCam.Logger.LogInfo("Activated MurdererRoomTracker for room: " + targetRoom.name);
+                    }
+                }
+                
+                KillerCam.Logger.LogInfo("Switched to " + target.ToString() + " camera");
+                
+                // Hide HUD elements
+                HideHUDElements();
+            }
+            catch (Exception ex)
+            {
+                KillerCam.Logger.LogError("Error switching to " + target.ToString() + " camera: " + ex.Message);
             }
         }
     }
