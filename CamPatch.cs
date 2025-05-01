@@ -25,6 +25,9 @@ namespace KillerCam
         // Track the murderer's last room to avoid unnecessary culling updates
         private static NewRoom lastMurdererRoom = null;
         private static float cullingUpdateCooldown = 0f;
+        
+        // Track spectating state between frames
+        private static bool wasSpectatingLastFrame = false;
 
         // IL2CPP key codes for arrow keys
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppUpKey = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.UpArrow;
@@ -117,6 +120,21 @@ namespace KillerCam
                 
                 // The rotation is now applied in UpdateMurdererCamera
                 // This combines the murderer's base rotation with our manual offset
+                
+                // Continuously check and hide HUD elements while in spectate mode
+                UpdateHUDVisibility();
+            }
+            else if (wasSpectatingLastFrame && !isSpectatingMurderer)
+            {
+                // If we just switched back to player view, restore HUD elements
+                RestoreHUDElements();
+                wasSpectatingLastFrame = false;
+            }
+            
+            // Track spectating state for the next frame
+            if (isSpectatingMurderer)
+            {
+                wasSpectatingLastFrame = true;
             }
             
             // If we're spectating the murderer, update the camera position and handle culling
@@ -159,7 +177,6 @@ namespace KillerCam
                     }
                 }
             }
-            
         }
         
         private static void ToggleMurdererCamera()
@@ -177,6 +194,9 @@ namespace KillerCam
             
             isSpectatingMurderer = !isSpectatingMurderer;
         }
+        
+        // List to track hidden HUD elements
+        private static List<GameObject> hiddenHUDElements = new List<GameObject>();
         
         private static void SwitchToMurdererCamera()
         {
@@ -228,6 +248,9 @@ namespace KillerCam
                         }
                     }
                     
+                    // Hide HUD elements
+                    HideHUDElements();
+                    
                     KillerCam.Logger.LogInfo("Switched to murderer camera. Press " + toggleKey.ToString() + " to switch back.");
                 }
             }
@@ -253,6 +276,128 @@ namespace KillerCam
             }
         }
         
+        // Method to continuously update HUD visibility during runtime
+        private static void UpdateHUDVisibility()
+        {
+            try
+            {
+                if (InterfaceControls.Instance == null)
+                    return;
+                
+                // Hide reticle/crosshair
+                if (InterfaceControls.Instance.reticleContainer != null && 
+                    InterfaceControls.Instance.reticleContainer.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.reticleContainer.gameObject.SetActive(false);
+                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.reticleContainer.gameObject))
+                        hiddenHUDElements.Add(InterfaceControls.Instance.reticleContainer.gameObject);
+                }
+                
+                // Hide interaction elements
+                if (InterfaceControls.Instance.interactionRect != null && 
+                    InterfaceControls.Instance.interactionRect.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.interactionRect.gameObject.SetActive(false);
+                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.interactionRect.gameObject))
+                        hiddenHUDElements.Add(InterfaceControls.Instance.interactionRect.gameObject);
+                }
+                
+                // Hide interaction text
+                if (InterfaceControls.Instance.interactionTextContainer != null && 
+                    InterfaceControls.Instance.interactionTextContainer.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.interactionTextContainer.gameObject.SetActive(false);
+                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.interactionTextContainer.gameObject))
+                        hiddenHUDElements.Add(InterfaceControls.Instance.interactionTextContainer.gameObject);
+                }
+                
+                // Hide action interaction display
+                if (InterfaceControls.Instance.actionInteractionDisplay != null && 
+                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.SetActive(false);
+                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.actionInteractionDisplay.gameObject))
+                        hiddenHUDElements.Add(InterfaceControls.Instance.actionInteractionDisplay.gameObject);
+                }
+                
+                // Hide light orb
+                if (InterfaceControls.Instance.lightOrbRect != null && 
+                    InterfaceControls.Instance.lightOrbRect.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.lightOrbRect.gameObject.SetActive(false);
+                    if (!hiddenHUDElements.Contains(InterfaceControls.Instance.lightOrbRect.gameObject))
+                        hiddenHUDElements.Add(InterfaceControls.Instance.lightOrbRect.gameObject);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Just log and continue
+                KillerCam.Logger.LogWarning($"Error updating HUD visibility: {ex.Message}");
+            }
+        }
+        
+        // Method to hide HUD elements
+        private static void HideHUDElements()
+        {
+            try
+            {
+                // Clear the list of hidden elements
+                hiddenHUDElements.Clear();
+                
+                if (InterfaceControls.Instance == null)
+                {
+                    KillerCam.Logger.LogWarning("InterfaceControls.Instance is null, cannot hide HUD elements");
+                    return;
+                }
+                
+                // Hide reticle/crosshair
+                if (InterfaceControls.Instance.reticleContainer != null && 
+                    InterfaceControls.Instance.reticleContainer.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.reticleContainer.gameObject.SetActive(false);
+                    hiddenHUDElements.Add(InterfaceControls.Instance.reticleContainer.gameObject);
+                }
+                
+                // Hide interaction elements
+                if (InterfaceControls.Instance.interactionRect != null && 
+                    InterfaceControls.Instance.interactionRect.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.interactionRect.gameObject.SetActive(false);
+                    hiddenHUDElements.Add(InterfaceControls.Instance.interactionRect.gameObject);
+                }
+                
+                // Hide interaction text
+                if (InterfaceControls.Instance.interactionTextContainer != null && 
+                    InterfaceControls.Instance.interactionTextContainer.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.interactionTextContainer.gameObject.SetActive(false);
+                    hiddenHUDElements.Add(InterfaceControls.Instance.interactionTextContainer.gameObject);
+                }
+                
+                // Hide action interaction display
+                if (InterfaceControls.Instance.actionInteractionDisplay != null && 
+                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.actionInteractionDisplay.gameObject.SetActive(false);
+                    hiddenHUDElements.Add(InterfaceControls.Instance.actionInteractionDisplay.gameObject);
+                }
+                
+                // Hide light orb
+                if (InterfaceControls.Instance.lightOrbRect != null && 
+                    InterfaceControls.Instance.lightOrbRect.gameObject.activeSelf)
+                {
+                    InterfaceControls.Instance.lightOrbRect.gameObject.SetActive(false);
+                    hiddenHUDElements.Add(InterfaceControls.Instance.lightOrbRect.gameObject);
+                }
+                
+                KillerCam.Logger.LogInfo("HUD elements hidden for murderer spectate mode");
+            }
+            catch (Exception ex)
+            {
+                KillerCam.Logger.LogError($"Error hiding HUD elements: {ex.Message}");
+            }
+        }
+        
         private static void SwitchToPlayerCamera()
         {
             try
@@ -262,6 +407,9 @@ namespace KillerCam
                 
                 // Restore player rooms that were hidden for optimization
                 MurdererRoomTracker.RestorePlayerRooms();
+                
+                // Restore HUD elements
+                RestoreHUDElements();
                 
                 KillerCam.Logger.LogInfo("Deactivated MurdererRoomTracker and restored player rooms");
                 
@@ -334,6 +482,29 @@ namespace KillerCam
             }
 
             KillerCam.Logger.LogInfo("Switched to player camera. Press " + toggleKey.ToString() + " to switch back.");
+        }
+        
+        // Method to restore hidden HUD elements
+        private static void RestoreHUDElements()
+        {
+            try
+            {
+                // Restore all hidden elements
+                foreach (var element in hiddenHUDElements)
+                {
+                    if (element != null)
+                        element.SetActive(true);
+                }
+                
+                // Clear the list
+                hiddenHUDElements.Clear();
+                
+                KillerCam.Logger.LogInfo("HUD elements restored");
+            }
+            catch (Exception ex)
+            {
+                KillerCam.Logger.LogError($"Error restoring HUD elements: {ex.Message}");
+            }
         }
         
         private static void CreateMurdererCamera()
