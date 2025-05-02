@@ -474,6 +474,7 @@ namespace KillerCam
             }
             else
             {
+                Player.Instance.EnablePlayerMovement(false);
                 // If we're currently spectating something else, directly switch to the new target
                 // without going back to player camera first
                 if (isSpectatingMurderer || isSpectatingVictim)
@@ -594,7 +595,7 @@ namespace KillerCam
         public static void SwitchToPlayerCamera()
         {
             KillerCam.Logger.LogInfo("Switching back to player camera.");
-
+            Player.Instance.EnablePlayerMovement(true);
             // Get player camera if not already stored
             if (playerCamera == null)
             {
