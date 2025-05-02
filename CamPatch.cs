@@ -75,6 +75,7 @@ namespace KillerCam
         private static Camera sourceCamera = null; // The camera we're transitioning from
         private static Camera targetCamera = null; // The camera we're transitioning to
         
+        
         // Method to start a camera transition between two cameras
         private static void TransitionCamera(Camera source, Camera target, SpectateTarget targetType)
         {
@@ -149,6 +150,11 @@ namespace KillerCam
         public static void Prefix(Player __instance)
         {
             
+            if (!SpectatorUI.isCreated)
+            {
+                SpectatorUI.CreateSpectatorText();
+            }
+
             // Check for F8 key press
             bool isKeyDownMurderer = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyMurderer);
             bool isKeyDownVictim = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyVictim);
@@ -430,6 +436,10 @@ namespace KillerCam
                         status = "Error Reading Status";
                     }
 
+                    if (KillerCam.hideTargetName.Value)
+                    {
+                        npcName = "Hidden";
+                    }
 
                     string displayText = $"Spectating {targetTypeString}: {npcName} - {status}";
                     SpectatorUI.UpdateText(displayText); 
@@ -581,7 +591,7 @@ namespace KillerCam
         }
         
         
-        private static void SwitchToPlayerCamera()
+        public static void SwitchToPlayerCamera()
         {
             KillerCam.Logger.LogInfo("Switching back to player camera.");
 
@@ -806,25 +816,6 @@ namespace KillerCam
             catch (Exception ex)
             {
                 KillerCam.Logger.LogError("Error switching to " + targetType.ToString() + " camera: " + ex.Message);
-            }
-        }
-        
-        // Method to restore hidden HUD elements
-        private static void RestoreHUDElements()
-        {
-            try
-            {                        
-                // Make sure the HUD canvas is enabled
-                if (InterfaceControls.Instance != null && InterfaceControls.Instance.hudCanvas != null)
-                {
-                    InterfaceControls.Instance.hudCanvas.gameObject.SetActive(true);
-                }
-                
-                KillerCam.Logger.LogInfo("HUD canvas and elements restored");
-            }
-            catch (Exception ex)
-            {
-                KillerCam.Logger.LogError($"Error restoring HUD elements: {ex.Message}");
             }
         }
         
@@ -1235,13 +1226,6 @@ namespace KillerCam
                 GameObject.DontDestroyOnLoad(victimCameraObject);
                 KillerCam.Logger.LogInfo("Victim camera created.");
             }
-        }
-
-        // Add this method if it doesn't exist
-        private static void RestorePlayerFunctionality()
-        {
-            // TODO: Implement logic to restore player controls, UI, etc. if needed.
-            KillerCam.Logger.LogInfo("RestorePlayerFunctionality called (currently placeholder).");
         }
     }
 }

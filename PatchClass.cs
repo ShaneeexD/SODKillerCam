@@ -13,15 +13,16 @@ namespace KillerCam
     {
         public static ManualLogSource Logger;
         private Harmony harmony;
-
-        public static ConfigEntry<float> walkSpeedMultiplier;
-        public static ConfigEntry<float> runSpeedMultiplier;
+        public static ConfigEntry<bool> hideTargetName;
 
         public override void Load()
         {
             Logger = Log;
             NewGameHandler eventHandler = new NewGameHandler();
             Logger.LogInfo("Loading Killer Cam...");
+
+            hideTargetName = Config.Bind("General", "HideTargetName", false, new ConfigDescription("Hide the Murderer/Victim name while spectating."));
+            
             try
             {
                 harmony = new Harmony("KillerCam");

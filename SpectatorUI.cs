@@ -8,7 +8,7 @@ namespace KillerCam
     {
         private static GameObject spectatorTextObject;
         private static TextMeshProUGUI spectatorText; // Or use Text spectatorText if TMP isn't available/preferred
-        private static bool isCreated = false;
+        public static bool isCreated = false;
 
         public static void CreateSpectatorText()
         {
