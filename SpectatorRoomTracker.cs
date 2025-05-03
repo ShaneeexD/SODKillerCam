@@ -15,6 +15,7 @@ namespace KillerCam
         // Store player's room for restoration
         private static NewRoom playerRoom = null;
 
+
         // Call this when starting to spectate (murderer or victim)
         public static void StartSpectating(NewRoom target)
         {
@@ -60,6 +61,16 @@ namespace KillerCam
 
             TargetRoom = newTargetRoom;
             KillerCam.Logger.LogInfo($"SpectatorRoomTracker: Updated target room to {TargetRoom?.name}");
+
+            if (AudioController.Instance != null && AudioController.Instance.playerListener != null && TargetRoom != null)
+            {
+                // Option 1: Move to spectator camera position (if you have a reference)
+                // AudioController.Instance.playerListener.transform.position = spectatorCamera.transform.position;
+
+                // Option 2: Move to target room center (simpler)
+                AudioController.Instance.playerListener.transform.position = TargetRoom.middleRoomPosition;
+                KillerCam.Logger.LogInfo($"Moved playerListener transform to {TargetRoom.name} center for audio calculation.");
+            }
 
             // Trigger culling update for the new room
             if (GeometryCullingController.Instance != null)
@@ -476,6 +487,5 @@ namespace KillerCam
             return true;
         }
     }
-
     // No longer need to patch ExecuteCurrentCullingTree as we call it directly after our custom logic
 }

@@ -75,18 +75,20 @@ namespace KillerCam
 
             spectatorTextObject.SetActive(true); // Ensure the object is active before setting text
             spectatorText.text = message;
+            spectatorText.color = Color.white;
         }
 
         public static void ShowText()
         {
              if (!isCreated || spectatorTextObject == null) return;
              spectatorTextObject.SetActive(true);
+             spectatorText.color = Color.white;
         }
 
         public static void HideText()
         {
             if (!isCreated || spectatorTextObject == null) return;
-            spectatorTextObject.SetActive(false);
+            spectatorText.color = Color.clear;
         }
 
         public static void DestroySpectatorText()

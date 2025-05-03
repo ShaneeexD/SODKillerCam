@@ -8,6 +8,13 @@ using UnityEngine;
 using BepInEx.Unity.IL2CPP.UnityEngine;
 using KillerCam; // Add this if SpectatorUI is in the KillerCam namespace
 using TMPro;    // Add this if using TextMeshPro in SpectatorUI
+using Il2CppInterop.Runtime.InteropTypes;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using UnityEngine.SceneManagement;
+using FMOD.Studio;  // For StudioListener
+using FMODUnity;
+using SOD.Common;    // For Unity integration
+using SOD.Common.Extensions;
 
 namespace KillerCam
 {
@@ -15,8 +22,8 @@ namespace KillerCam
     public class CamPatch
     {
         // Static variables for camera control
-        private static bool isSpectatingMurderer = false;
-        private static bool isSpectatingVictim = false;
+        public static bool isSpectatingMurderer = false;
+        public static bool isSpectatingVictim = false;
         private static Camera murdererCamera = null;
         private static GameObject murdererCameraObject = null;
         private static Camera victimCamera = null;
@@ -26,6 +33,7 @@ namespace KillerCam
         // Track which camera we're currently using
         private static SpectateTarget currentSpectateTarget = SpectateTarget.None;
         
+        public static Human targetHuman = null;
         // Enum to track which camera we're using
         public enum SpectateTarget
         {
@@ -35,6 +43,7 @@ namespace KillerCam
         }
         public static MurdererInfoProvider murdererInfoProvider;
         public static MurderController murderController;
+        public static SpeechController speechController;
         private static UnityEngine.KeyCode toggleKey = UnityEngine.KeyCode.F8; // You can change this to any key you prefer
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKeyMurderer = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F8; // IL2CPP equivalent
         private static BepInEx.Unity.IL2CPP.UnityEngine.KeyCode il2cppToggleKeyVictim = BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.F9; // IL2CPP equivalent
@@ -75,7 +84,6 @@ namespace KillerCam
         private static Camera sourceCamera = null; // The camera we're transitioning from
         private static Camera targetCamera = null; // The camera we're transitioning to
         
-        
         // Method to start a camera transition between two cameras
         private static void TransitionCamera(Camera source, Camera target, SpectateTarget targetType)
         {
@@ -97,7 +105,7 @@ namespace KillerCam
             if (targetType != SpectateTarget.None) 
             {
                 // Get the target human
-                Human targetHuman = null;
+                
                 if (targetType == SpectateTarget.Murderer && murderController != null)
                     targetHuman = murderController.currentMurderer?.GetComponent<Human>();
                 else if (targetType == SpectateTarget.Victim && murderController != null)
@@ -155,9 +163,15 @@ namespace KillerCam
                 SpectatorUI.CreateSpectatorText();
             }
 
+            if (isSpectatingMurderer || isSpectatingVictim)
+            {
+              //  TeleportPlayerToTarget(currentSpectateTarget);
+            }
+
             // Check for F8 key press
             bool isKeyDownMurderer = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyMurderer);
             bool isKeyDownVictim = BepInEx.Unity.IL2CPP.UnityEngine.Input.GetKeyInt(il2cppToggleKeyVictim);
+
 
             
             // Handle murderer camera toggle (F8)
@@ -443,11 +457,14 @@ namespace KillerCam
 
                     string displayText = $"Spectating {targetTypeString}: {npcName} - {status}";
                     SpectatorUI.UpdateText(displayText); 
+                    SpectatorUI.ShowText();
                 }
                 else
                 {
                     // If target human is lost, update UI to reflect that
                      SpectatorUI.UpdateText($"Spectating {targetTypeString}: Target Lost");
+                     SOD.Common.Lib.GameMessage.ShowPlayerSpeech($"No current {targetTypeString} available", 2f, true);
+                     SwitchToPlayerCamera();  
                 }
             }
             else
@@ -475,6 +492,7 @@ namespace KillerCam
             else
             {
                 Player.Instance.EnablePlayerMovement(false);
+
                 // If we're currently spectating something else, directly switch to the new target
                 // without going back to player camera first
                 if (isSpectatingMurderer || isSpectatingVictim)
@@ -516,8 +534,49 @@ namespace KillerCam
                 currentSpectateTarget = target;
             }
         }
+
+        private static void TeleportPlayerToTarget(SpectateTarget target)
+        {
+            try
+            {
+                // Find the target human based on the target type
+                Human targetHuman = null;
+                if (target == SpectateTarget.Murderer && murderController?.currentMurderer != null)
+                {
+                    targetHuman = murderController.currentMurderer.GetComponent<Human>();
+                }
+                else if (target == SpectateTarget.Victim && murderController?.currentVictim != null)
+                {
+                    targetHuman = murderController.currentVictim.GetComponent<Human>();
+                }
+
+                if (targetHuman != null)
+                {
+                    //Player.Instance.SetHiding(true, null);
+                    //Player.Instance.AddLocationOfAuthorty(targetHuman.currentRoom.gameLocation);
+                    //notificationController.HUDNotificationsIcon.gameObject.SetActive(false);
+                    //crosshairController.maxSize = 0; //200 Default
+                    //interfaceControls.enableTooltips = false;
+                    //interfaceControls.gameObject.SetActive(false);
+                    //Player.Instance.gameObject.GetComponent<Rigidbody>().isKinematic = true;
+
+                    // Teleport the player to the target's position
+                  //  Player.Instance.transform.position = targetHuman.transform.position;
+                  //  Player.Instance.transform.rotation = targetHuman.transform.rotation;
+                  //  KillerCam.Logger.LogInfo($"Teleported player to {targetHuman.GetCitizenName()}");
+                }
+                else
+                {
+                    KillerCam.Logger.LogWarning("Could not find target human to teleport player to.");
+                }
+            }
+            catch (Exception ex)
+            {
+                KillerCam.Logger.LogError($"Error teleporting player to target: {ex.ToString()}");
+            }
+        }
         
-        private static void SwitchToMurdererCamera()
+        private static void SwitchToVictimCamera()
         {
             try
             {
@@ -542,6 +601,13 @@ namespace KillerCam
                 {
                     playerCamera.enabled = false;
                     KillerCam.Logger.LogInfo("Disabled player camera");
+                }
+
+                if (murderController.currentVictim == null)
+                {
+                    SwitchToPlayerCamera();
+                    SOD.Common.Lib.GameMessage.ShowPlayerSpeech($"No current victim available", 2f, true);                     
+                    return;
                 }
                 
                 if (murdererCamera != null)
@@ -657,6 +723,13 @@ namespace KillerCam
             {
                 KillerCam.Logger.LogWarning("Could not force player culling update (Player, Room, or CullingController missing).");
             }
+
+            InterfaceControls interfaceControls = InterfaceControls.Instance;
+            if(interfaceControls != null && !interfaceControls.hudCanvas.gameObject.activeSelf)
+            {
+                interfaceControls.hudCanvas.gameObject.SetActive(true);
+                KillerCam.Logger.LogInfo("Interface controls enabled");
+            }
             // --- End State Reset and Culling ---
         }
 
@@ -677,6 +750,13 @@ namespace KillerCam
                     Quaternion initialOffsetRotation = initialRotation * Quaternion.Euler(cameraRotationX, cameraYOffset, 0);
                     targetCameraRotation = initialOffsetRotation; // Start smoothing towards the initial offset rotation
                     lastSignificantTargetRotation = initialRotation; // Set the initial significant rotation
+                }
+
+                InterfaceControls interfaceControls = InterfaceControls.Instance;
+                if(interfaceControls != null && interfaceControls.hudCanvas.gameObject.activeSelf)
+                {
+                    interfaceControls.hudCanvas.gameObject.SetActive(false);
+                    KillerCam.Logger.LogInfo("Interface controls disabled");
                 }
 
                 // If a transition is already in progress, don't start a new one
@@ -752,6 +832,13 @@ namespace KillerCam
                     }
                 }
                 
+                if (targetHuman == null)
+                {
+                    SwitchToPlayerCamera();
+                    SOD.Common.Lib.GameMessage.ShowPlayerSpeech($"No current {targetType} available", 2f, true);                     
+                    return;
+                }
+                
                 if (targetCamera != null)
                 {
                     // Determine the source camera for the transition
@@ -812,6 +899,7 @@ namespace KillerCam
                         // GeometryCullingController.Instance.UpdateCullingForRoom(targetRoom, true, false, null, true);
                         KillerCam.Logger.LogInfo("Activated room tracking and forced culling update for room: " + targetRoom.name);
                     }
+                    
                 }
             }
             catch (Exception ex)
@@ -973,6 +1061,13 @@ namespace KillerCam
                 {
                     return;
                 }
+
+                if (murderController.currentMurderer == null)
+                {
+                    SwitchToPlayerCamera();
+                    SOD.Common.Lib.GameMessage.ShowPlayerSpeech($"No current murderer available", 2f, true);                     
+                    return;
+                }
                 
                 // Calculate the desired position (behind and slightly above the murderer)
                 Vector3 targetPosition = murdererTransform.position + new Vector3(0, 1.7f, 0);
@@ -1095,6 +1190,13 @@ namespace KillerCam
                 Transform victimTransform = murderController.currentVictim.transform;
                 if (victimTransform == null)
                 {
+                    return;
+                }
+
+                if (murderController.currentVictim == null)
+                {
+                    SwitchToPlayerCamera();
+                    SOD.Common.Lib.GameMessage.ShowPlayerSpeech($"No current victim available", 2f, true);                     
                     return;
                 }
                 

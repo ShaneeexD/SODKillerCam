@@ -1,4 +1,4 @@
-using SOD.Common;
+﻿using SOD.Common;
 using System;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -22,14 +22,12 @@ namespace KillerCam
 
         private void HandleNewGameStarted(object sender, EventArgs e)
         {
-            murdererInfoProvider = new MurdererInfoProvider();
-            KillerCam.Logger.LogInfo(murdererInfoProvider.GetMurdererLocation().ToString());
+            CamPatch.SwitchToPlayerCamera();
         }
 
         private void HandleGameLoaded(object sender, EventArgs e)
         {
-            murdererInfoProvider = new MurdererInfoProvider();
-            KillerCam.Logger.LogInfo(murdererInfoProvider.GetMurdererLocation().ToString());
+            CamPatch.SwitchToPlayerCamera();
         }
     }
 }
