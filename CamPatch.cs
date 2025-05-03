@@ -24,9 +24,9 @@ namespace KillerCam
         // Static variables for camera control
         public static bool isSpectatingMurderer = false;
         public static bool isSpectatingVictim = false;
-        private static Camera murdererCamera = null;
+        public static Camera murdererCamera = null;
         private static GameObject murdererCameraObject = null;
-        private static Camera victimCamera = null;
+        public static Camera victimCamera = null;
         private static GameObject victimCameraObject = null;
         private static Camera playerCamera = null;
         

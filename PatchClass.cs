@@ -27,9 +27,8 @@ namespace KillerCam
             {
                 harmony = new Harmony("KillerCam");
                 harmony.PatchAll();
-                Logger.LogInfo("All patches applied.");
+                Logger.LogInfo("All patches applied successfully.");
             }
-
             catch (Exception ex)
             {
                 Logger.LogError($"Error during Load: {ex}");
