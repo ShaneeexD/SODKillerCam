@@ -1330,5 +1330,24 @@ namespace KillerCam
                 KillerCam.Logger.LogInfo("Victim camera created.");
             }
         }
+        public static Transform GetActiveSpectatorCameraTransform()
+        {
+            if (isTransitioning && activeCamera != null)
+            {
+                return activeCamera.transform;
+            }
+            else if (!isTransitioning)
+            {
+                switch (currentSpectateTarget)
+                {
+                    case SpectateTarget.Murderer:
+                        return murdererCamera?.transform;
+                    case SpectateTarget.Victim:
+                        return victimCamera?.transform;
+                }
+            }
+            // Return null if not spectating, camera is null, or in an unexpected state
+            return null; 
+        }
     }
 }
